@@ -45,6 +45,10 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	statusCode, err := GetPageWithRetries(ctx, opts.URL, opts.HTTPClient, opts.Retries, opts.Delay)
 
+	if err != nil {
+		return nil, err
+	}
+
 	page := &Page{
 		URL:        opts.URL,
 		Depth:      1,
