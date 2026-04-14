@@ -107,10 +107,9 @@ func GetPageWithRetries(ctx context.Context, url string, client *http.Client, re
 	return 0, fmt.Errorf("failed after %d retries: %w", retries, lastErr)
 }
 
+// GetPage делает запрос и отдаёт его статус
 func GetPage(ctx context.Context, url string, httpClient *http.Client) (int, error) {
-
-	// Создаем запрос
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -120,7 +119,9 @@ func GetPage(ctx context.Context, url string, httpClient *http.Client) (int, err
 	if err != nil {
 		return 0, err
 	}
-	return resp.StatusCode, err
+	defer resp.Body.Close()
+
+	return resp.StatusCode, nil
 }
 
 // NewPageResponse конструктор отчета по отдельной странице
