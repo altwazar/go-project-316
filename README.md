@@ -117,21 +117,3 @@ go install github.com/altwazar/go-project-316/cmd/hexlet-go-crawler@latest
   --workers 8 \
   https://example.com
 ````
-
-## Разработка
-
-### Запуск тестов
-
-```bash
-# Запуск всех тестов с проверкой гонок
-make test
-
-# Или直接用 go test
-go test -v ./... -race
-
-# Запуск с покрытием
-go test -v -cover ./...
-
-# Запуск конкретных тестов
-go test -v -run TestSuccessfulRequest ./...
-````
