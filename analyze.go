@@ -17,7 +17,7 @@ type Options struct {
 	UserAgent   string
 	Concurrency uint
 	IndentJSON  uint
-	HTTPClient  string
+	HTTPClient  *http.Client
 }
 
 type AnalyzeLinkResponse struct {
@@ -36,10 +36,11 @@ type Page struct {
 
 // Analyze - точка входа анализатора
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
-	page, err := NewPageResponse(ctx, opts.URL, 1)
+	getResult, err := GetPage(ctx, opts.URL, opts.HTTPClient)
 	if err != nil {
 		return nil, err
 	}
+	page := NewPageResponse(getResult, opts.URL, 1)
 	pages := []Page{*page}
 	response := NewAnalyzeResponse(opts.URL, opts.Depth, pages)
 	jsonData, err := json.MarshalIndent(response, "", "  ")
@@ -59,26 +60,30 @@ func NewAnalyzeResponse(rootURL string, depth uint, pages []Page) *AnalyzeLinkRe
 	}
 }
 
-// NewPageResponse конструктор отчета по отдельной странице
-func NewPageResponse(ctx context.Context, url string, depth uint) (*Page, error) {
-	// Выполняем GET запрос
-	resp, err := http.Get(url)
+func GetPage(ctx context.Context, url string, httpClient *http.Client) (int, error) {
+
+	// Создаем запрос
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return &Page{
-			URL:        url,
-			Depth:      depth,
-			HTTPStatus: resp.StatusCode,
-			Status:     getStatusString(resp.StatusCode),
-			Error:      err.Error(),
-		}, nil
-	} else {
-		return &Page{
-			URL:        url,
-			Depth:      depth,
-			HTTPStatus: resp.StatusCode,
-			Status:     getStatusString(resp.StatusCode),
-			Error:      "",
-		}, nil
+		return 0, err
+	}
+
+	// Выполняем запрос через переданный клиент
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	return resp.StatusCode, err
+}
+
+// NewPageResponse конструктор отчета по отдельной странице
+func NewPageResponse(result int, url string, depth uint) *Page {
+	return &Page{
+		URL:        url,
+		Depth:      depth,
+		HTTPStatus: result,
+		Status:     getStatusString(result),
+		Error:      "",
 	}
 }
 

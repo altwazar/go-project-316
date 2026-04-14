@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/urfave/cli/v3" // imports as package "cli"
 	"log"
+	"net/http"
 	"os"
 )
 
@@ -55,10 +56,10 @@ func main() {
 				}
 				return cli.Exit("Error: requires one argument - url", 1)
 			}
-
 			opts := code.Options{
-				URL:   cmd.Args().Get(0),
-				Depth: cmd.Uint("depth"),
+				URL:        cmd.Args().Get(0),
+				Depth:      cmd.Uint("depth"),
+				HTTPClient: &http.Client{},
 			}
 			out, err := code.Analyze(ctx, opts)
 			if err == nil {
