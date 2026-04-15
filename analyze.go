@@ -70,15 +70,33 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 func PageCrawler(ctx context.Context, opts Options) (AnalyzeLinkResponse, error) {
 	// Отчет
 	analyzeResponse := NewAnalyzeResponse(opts.URL, opts.Depth, []Page{})
-	// Первая страница
-	page, err := GetPageWithRetries(ctx, opts.URL, 1, opts.HTTPClient, opts.Retries, opts.Delay)
+	// Текущая глубина
+	curDepth := 1
+	// Текущий список ссылок на проверку
+	links := []string{opts.URL}
+	pages := []Page{}
+	// Переебор ссылок, пока они есть и позволяет глубина
+	for {
+		if len(links) == 0 || curDepth > opts.Depth {
+			break
+		}
+		pagesOnLevel := []Page{}
+		linksOnLevel := []string{}
+		for _, link := range links {
+			page, err := GetPageWithRetries(ctx, link, curDepth, opts.HTTPClient, opts.Retries, opts.Delay)
 
-	if err != nil {
-		return *analyzeResponse, err
+			if err != nil {
+				return *analyzeResponse, err
+			}
+
+			pagesOnLevel = append(pagesOnLevel, page)
+			linksOnLevel = append(linksOnLevel, page.Links...)
+		}
+		pages = append(pages, pagesOnLevel...)
+		curDepth += 1
+		links = linksOnLevel
 	}
-
-	analyzeResponse.Pages = append(analyzeResponse.Pages, page)
-
+	analyzeResponse.Pages = pages
 	return *analyzeResponse, nil
 }
 
