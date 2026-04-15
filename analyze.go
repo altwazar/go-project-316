@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/html"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -28,11 +32,18 @@ type AnalyzeLinkResponse struct {
 	Pages       []Page    `json:"pages"`
 }
 type Page struct {
-	URL        string `json:"url" binding:"url"`
-	Depth      int    `json:"depth"`
-	HTTPStatus int    `json:"http_status"`
-	Status     string `json:"status"`
-	Error      string `json:"error"`
+	URL          string      `json:"url" binding:"url"`
+	Depth        int         `json:"depth"`
+	HTTPStatus   int         `json:"http_status"`
+	Status       string      `json:"status"`
+	Error        string      `json:"error"`
+	BrokenLinks  []LinkCheck `json:"broken_links"`
+	Links        []string    `json:"-"`
+	DiscoveredAt time.Time   `json:"discovered_at"`
+}
+type LinkCheck struct {
+	URL    string `json:"url binding:"url"`
+	Status string `json:"status"`
 }
 
 // Analyze - точка входа анализатора
@@ -43,26 +54,32 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
-	statusCode, err := GetPageWithRetries(ctx, opts.URL, opts.HTTPClient, opts.Retries, opts.Delay)
+	response, err := PageCrawler(ctx, opts)
 
 	if err != nil {
 		return nil, err
 	}
 
-	page := &Page{
-		URL:        opts.URL,
-		Depth:      1,
-		HTTPStatus: statusCode,
-		Status:     getStatusString(statusCode),
-	}
-
-	pages := []Page{*page}
-	response := NewAnalyzeResponse(opts.URL, opts.Depth, pages)
 	jsonData, err := json.MarshalIndent(response, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	return jsonData, nil
+}
+
+func PageCrawler(ctx context.Context, opts Options) (AnalyzeLinkResponse, error) {
+	// Отчет
+	analyzeResponse := NewAnalyzeResponse(opts.URL, opts.Depth, []Page{})
+	// Первая страница
+	page, err := GetPageWithRetries(ctx, opts.URL, 1, opts.HTTPClient, opts.Retries, opts.Delay)
+
+	if err != nil {
+		return *analyzeResponse, err
+	}
+
+	analyzeResponse.Pages = append(analyzeResponse.Pages, page)
+
+	return *analyzeResponse, nil
 }
 
 // NewAnalyzeResponse конструктор отчета
@@ -75,36 +92,123 @@ func NewAnalyzeResponse(rootURL string, depth int, pages []Page) *AnalyzeLinkRes
 	}
 }
 
-// GetPageWithRetries - функция с поддержкой ретраев
-func GetPageWithRetries(ctx context.Context, url string, client *http.Client, retries int, delay time.Duration) (int, error) {
+// ExtractLinks извлекает все ссылки из HTML-страницы
+func ExtractLinks(htmlContent string, baseURL *url.URL) ([]string, error) {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse HTML: %w", err)
+	}
+
+	var links []string
+
+	// Рекурсивный обход DOM-дерева
+	var traverse func(*html.Node)
+	traverse = func(n *html.Node) {
+		// Проверяем, является ли узел тегом <a>
+		if n.Type == html.ElementNode && n.Data == "a" {
+			// Ищем атрибут href
+			for _, attr := range n.Attr {
+				if attr.Key == "href" {
+					// Преобразуем относительную ссылку в абсолютную
+					href := attr.Val
+					if href != "" && !strings.HasPrefix(href, "#") &&
+						!strings.HasPrefix(href, "javascript:") &&
+						!strings.HasPrefix(href, "mailto:") &&
+						!strings.HasPrefix(href, "tel:") {
+
+						// Парсим ссылку относительно базового URL
+						parsed, err := baseURL.Parse(href)
+						if err == nil {
+							// Очищаем URL (убираем якоря и параметры)
+							parsed.Fragment = ""
+							links = append(links, parsed.String())
+						}
+					}
+					break
+				}
+			}
+		}
+		// Рекурсивно обходим всех детей
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			traverse(child)
+		}
+	}
+
+	traverse(doc)
+	return links, nil
+}
+
+// GetPageWithRetries - функция с поддержкой ретраев, возвращает ссылки
+func GetPageWithRetries(ctx context.Context, url string, depth int, client *http.Client, retries int, delay time.Duration) (Page, error) {
 	var lastErr error
 
 	for i := 0; i <= retries; i++ {
-		// Проверяем контекст
 		select {
 		case <-ctx.Done():
-			return 0, ctx.Err()
+			return Page{}, ctx.Err()
 		default:
 		}
 
-		statusCode, err := GetPage(ctx, url, client)
+		statusCode, links, err := GetPageWithLinks(ctx, url, client)
 		if err == nil && statusCode < 500 {
-			return statusCode, nil
+			return *NewPageResponse(statusCode, url, depth, links), nil
 		}
 
 		lastErr = err
 
-		// Если не последняя попытка - ждём
 		if i < retries && delay > 0 {
 			select {
 			case <-ctx.Done():
-				return 0, ctx.Err()
+				return Page{}, ctx.Err()
 			case <-time.After(delay):
 			}
 		}
 	}
 
-	return 0, fmt.Errorf("failed after %d retries: %w", retries, lastErr)
+	return Page{}, fmt.Errorf("failed after %d retries: %w", retries, lastErr)
+}
+
+// GetPageWithLinks делает запрос и возвращает статус и список ссылок
+func GetPageWithLinks(ctx context.Context, urlStr string, httpClient *http.Client) (int, []string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	// Выполняем запрос
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+
+	// Проверяем Content-Type (парсим только HTML)
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		return resp.StatusCode, nil, nil // Не HTML, ссылок нет
+	}
+
+	// Читаем тело ответа
+	// Ограничиваем размер для защиты от больших файлов
+	const maxSize = 10 * 1024 * 1024 // 10MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
+	if err != nil {
+		return resp.StatusCode, nil, fmt.Errorf("failed to read body: %w", err)
+	}
+
+	// Парсим базовый URL
+	baseURL, err := url.Parse(urlStr)
+	if err != nil {
+		return resp.StatusCode, nil, fmt.Errorf("failed to parse base URL: %w", err)
+	}
+
+	// Извлекаем ссылки
+	links, err := ExtractLinks(string(body), baseURL)
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+
+	return resp.StatusCode, links, nil
 }
 
 // GetPage делает запрос и отдаёт его статус
@@ -125,13 +229,16 @@ func GetPage(ctx context.Context, url string, httpClient *http.Client) (int, err
 }
 
 // NewPageResponse конструктор отчета по отдельной странице
-func NewPageResponse(result int, url string, depth int) *Page {
+func NewPageResponse(statusCode int, url string, depth int, links []string) *Page {
 	return &Page{
-		URL:        url,
-		Depth:      depth,
-		HTTPStatus: result,
-		Status:     getStatusString(result),
-		Error:      "",
+		URL:          url,
+		Depth:        depth,
+		HTTPStatus:   statusCode,
+		Status:       getStatusString(statusCode),
+		BrokenLinks:  []LinkCheck{},
+		Links:        links,
+		DiscoveredAt: time.Now().UTC().Truncate(time.Second),
+		Error:        "",
 	}
 }
 
