@@ -1,7 +1,7 @@
 package main
 
 import (
-	"code"
+	"code/crawler"
 	"context"
 	"fmt"
 	"github.com/urfave/cli/v3"
@@ -65,12 +65,11 @@ func main() {
 			delay := cmd.Duration("delay")
 			rps := cmd.Int("rps")
 
-			// Если rps задан, игнорируем delay
 			if rps > 0 {
 				delay = 0
 			}
 
-			opts := code.Options{
+			opts := crawler.Options{
 				URL:         cmd.Args().Get(0),
 				Depth:       cmd.Int("depth"),
 				Delay:       delay,
@@ -84,7 +83,7 @@ func main() {
 				},
 			}
 
-			out, err := code.Analyze(ctx, opts)
+			out, err := crawler.Analyze(ctx, opts)
 			if err != nil {
 				log.Fatal(err)
 			}
