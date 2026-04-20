@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
+	"golang.org/x/time/rate"
 )
 
 // Options структура с настройками анализатора
@@ -23,11 +25,11 @@ type Options struct {
 	Timeout     time.Duration
 	UserAgent   string
 	Concurrency int
+	RPS         int
 	IndentJSON  int
 	HTTPClient  *http.Client
 }
 
-// Под задачи
 type taskType int
 
 const (
@@ -49,18 +51,59 @@ func newTask(url string, t taskType, depth int) *task {
 	}
 }
 
+// RateLimiter - общий ограничитель для всех воркеров
+type RateLimiter struct {
+	limiter *rate.Limiter
+	mu      sync.Mutex
+}
+
+// NewRateLimiter создаёт новый ограничитель запросов
+func NewRateLimiter(rps int, delay time.Duration) *RateLimiter {
+	var limit rate.Limit
+
+	if rps > 0 {
+		// RPS задан явно
+		limit = rate.Limit(rps)
+	} else if delay > 0 {
+		// Конвертируем delay в RPS
+		limit = rate.Limit(1.0 / delay.Seconds())
+	} else {
+		// Нет ограничений
+		limit = rate.Inf
+	}
+
+	return &RateLimiter{
+		limiter: rate.NewLimiter(limit, 1), // burst = 1 для равномерной нагрузки
+	}
+}
+
+// Wait блокирует выполнение до разрешения от rate limiter
+func (rl *RateLimiter) Wait(ctx context.Context) error {
+	if rl.limiter.Limit() == rate.Inf {
+		return nil
+	}
+	return rl.limiter.Wait(ctx)
+}
+
 // Выполняет задачу
 func (t *task) ExecuteTask(p *Pool) {
+	// Сигнализируем при завершении задачи
+	defer p.taskDone()
+
 	u, err := normalizeURL(t.url)
+	fmt.Println(t)
 	// Обработка двух типов задач, получение страницы и простая проверка доступности
 	if t.taskType == GetPageTask {
 		// Если страница с таким url уже в обработке, то задача прерывается
+		p.mu.Lock()
 		_, inProgress := p.getPagesInProgress[u]
 		if inProgress {
+			p.mu.Unlock()
 			return
 		}
-		// Задача в обработке
 		p.getPagesInProgress[u] = 1
+		p.mu.Unlock()
+
 		pg := Page{}
 		// Если была ошибка нормализации url, то запросить мы его не можем
 		if err != nil {
@@ -77,27 +120,32 @@ func (t *task) ExecuteTask(p *Pool) {
 			if p.opts.Depth > t.depth {
 				for _, ln := range pg.Links {
 					if isSameDomain(p.opts.URL, ln) {
-						p.tasks = append(p.tasks, *newTask(ln, GetPageTask, t.depth+1))
+						p.AddTask(newTask(ln, GetPageTask, t.depth+1))
 					} else {
-						p.tasks = append(p.tasks, *newTask(ln, CheckLinkTask, t.depth+1))
+						p.AddTask(newTask(ln, CheckLinkTask, t.depth+1))
 					}
 				}
 			} else {
 				for _, ln := range pg.Links {
-					p.tasks = append(p.tasks, *newTask(ln, CheckLinkTask, t.depth+1))
+					p.AddTask(newTask(ln, CheckLinkTask, t.depth+1))
 				}
 			}
 		}
 		// Готовая страница идет в список страниц
+		p.mu.Lock()
 		p.pages = append(p.pages, pg)
+		p.mu.Unlock()
 	} else {
 		// Если страница с таким url уже в обработке, то задача прерывается
+		p.mu.Lock()
 		_, inProgress := p.linkChecksInProgress[u]
 		if inProgress {
+			p.mu.Unlock()
 			return
 		}
-		// Задача в обработке
 		p.linkChecksInProgress[u] = 1
+		p.mu.Unlock()
+
 		ln := linkStatus{}
 		// Если была ошибка нормализации url, то запросить мы его не можем
 		if err != nil {
@@ -123,7 +171,11 @@ func (t *task) ExecuteTask(p *Pool) {
 			}
 		}
 		// Линк идет в список линуков, для формирования отчета
+		p.mu.Lock()
 		p.linkStatuses[u] = ln
+		p.mu.Unlock()
+		fmt.Print("task done:")
+		fmt.Println(t)
 	}
 }
 
@@ -136,6 +188,8 @@ func isSameDomain(urlStr1, urlStr2 string) bool {
 
 // После выполнения задач сборка отчета
 func parseResult(p *Pool) AnalyzeLinkResponse {
+	fmt.Print("Parsing")
+
 	// Перебираем страницы
 	for i := range p.pages {
 		// Перебираем линки на странице
@@ -144,7 +198,7 @@ func parseResult(p *Pool) AnalyzeLinkResponse {
 			// и он с ошибкой или статусом 4xx, 5xx, то добавляется
 			// в список сломанных слинков страницы
 			l, ok := p.linkStatuses[link]
-			if ok && l.Status >= 400 || l.Error != "" {
+			if ok && (l.Status >= 400 || l.Error != "") {
 				p.pages[i].BrokenLinks = append(p.pages[i].BrokenLinks, l)
 			}
 		}
@@ -152,21 +206,78 @@ func parseResult(p *Pool) AnalyzeLinkResponse {
 	return *NewAnalyzeResponse(p.opts.URL, p.opts.Depth, p.pages)
 }
 
-// Перебор задач, получение страниц и статусов
-// Макет концепта однопоточного перебора без воркеров
-func crawl(p *Pool) {
-	// Пока список задач не будет пустым идет их запуск в цикле.
-	for {
-		if len(p.tasks) == 0 {
-			break
+// worker - горутина, которая обрабатывает задачи из канала
+func worker(p *Pool, id int) {
+	defer p.workersWg.Done()
+
+	for task := range p.taskChan {
+		// Ждем разрешения от rate limiter перед выполнением задачи
+		if err := p.rateLimiter.Wait(p.ctx); err != nil {
+			// Контекст отменен - выходим
+			return
 		}
-		var t task
-		// Забираем первую задачу из списка
-		t, p.tasks = p.tasks[0], p.tasks[1:]
-		fmt.Println(t)
-		// Выполняем её
-		t.ExecuteTask(p)
+
+		task.ExecuteTask(p)
 	}
+}
+
+// monitorTasks - мониторит завершение задач и закрывает каналы
+func (p *Pool) monitorTasks() {
+	// Ждем, пока все задачи будут выполнены
+	p.tasksWg.Wait()
+
+	// Все задачи добавлены и выполнены - закрываем канал задач
+	close(p.taskChan)
+
+	// Ждем завершения всех воркеров
+	p.workersWg.Wait()
+	fmt.Print("Workers Done")
+	// Сигнализируем о полном завершении
+	close(p.doneChan)
+}
+
+// Start запускает обработку задач
+func (p *Pool) Start() {
+	// Добавляем первую задачу
+	p.AddTask(newTask(p.opts.URL, GetPageTask, 1))
+
+	// Запускаем воркеров
+	for i := 0; i < p.opts.Concurrency; i++ {
+		p.workersWg.Add(1)
+		go worker(p, i)
+	}
+
+	// Запускаем монитор в отдельной горутине
+	go p.monitorTasks()
+}
+
+// Wait ожидает полного завершения всех задач
+func (p *Pool) Wait() {
+	<-p.doneChan
+}
+
+// Close закрывает пул и отменяет контекст
+func (p *Pool) Close() {
+	p.cancel()
+}
+
+// AddTask безопасно добавляет новую задачу
+func (p *Pool) AddTask(task *task) {
+	// Увеличиваем счетчик задач ДО отправки в канал
+	p.tasksWg.Add(1)
+
+	select {
+	case p.taskChan <- *task:
+		// Задача успешно отправлена
+	case <-p.ctx.Done():
+		// Контекст отменен - отменяем добавление задачи
+		p.tasksWg.Done()
+	}
+}
+
+// taskDone сигнализирует о завершении задачи
+func (p *Pool) taskDone() {
+	p.tasksWg.Done()
 }
 
 func checkLinkStatus(ctx context.Context, urlStr string, client *http.Client) (int, error) {
@@ -212,28 +323,51 @@ func checkLinkStatus(ctx context.Context, urlStr string, client *http.Client) (i
 // Пул для обработки задач
 type Pool struct {
 	ctx                  context.Context
+	cancel               context.CancelFunc
 	opts                 Options
-	tasks                []task
-	linkChecksInProgress map[string]int
-	getPagesInProgress   map[string]int
-	linkStatuses         map[string]linkStatus
+	taskChan             chan task
+	linkChecksInProgress map[string]int        // Чтобы не дублировать запросы на проверку линков
+	getPagesInProgress   map[string]int        // Чтобы не дублировать получение страниц
+	linkStatuses         map[string]linkStatus // Статусы линков для отчёта
 	pages                []Page
+	mu                   sync.RWMutex
+	tasksWg              sync.WaitGroup // Счетчик активных задач
+	workersWg            sync.WaitGroup // Счетчик активных воркеров
+	doneChan             chan struct{}  // Канал для сигнала завершения
+	rateLimiter          *RateLimiter
 }
 
 func NewPool(ctx context.Context, opts Options) *Pool {
-	url, err := normalizeURL(opts.URL)
+	_, err := normalizeURL(opts.URL)
 	if err != nil {
 		log.Fatal("Ошибка с корневым url: ", err)
 	}
-	firstTask := newTask(url, GetPageTask, 1)
+
+	// Создаем отменяемый контекст
+	ctxWithCancel, cancel := context.WithCancel(ctx)
+
+	// Буферизированный канал для задач (размер = кол-во воркеров * 10)
+	taskChanSize := opts.Concurrency * 10
+	if taskChanSize < 100 {
+		taskChanSize = 100
+	}
+
+	// Создаем rate limiter
+	rateLimiter := NewRateLimiter(opts.RPS, opts.Delay)
+
 	return &Pool{
-		ctx:                  ctx,
+		ctx:                  ctxWithCancel,
+		cancel:               cancel,
 		opts:                 opts,
-		tasks:                []task{*firstTask},
-		linkChecksInProgress: map[string]int{},
-		getPagesInProgress:   map[string]int{},
-		linkStatuses:         map[string]linkStatus{},
+		taskChan:             make(chan task, taskChanSize),
+		linkChecksInProgress: make(map[string]int),
+		getPagesInProgress:   make(map[string]int),
+		linkStatuses:         make(map[string]linkStatus),
 		pages:                []Page{},
+		tasksWg:              sync.WaitGroup{},
+		workersWg:            sync.WaitGroup{},
+		doneChan:             make(chan struct{}),
+		rateLimiter:          rateLimiter,
 	}
 }
 
@@ -316,8 +450,23 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
+	// Устанавливаем User-Agent если задан
+	if opts.UserAgent != "" {
+		transport := &http.Transport{}
+		opts.HTTPClient.Transport = transport
+	}
+
 	p := NewPool(ctx, opts)
-	crawl(p)
+
+	// Запускаем обработку
+	p.Start()
+
+	// Ждем завершения
+	p.Wait()
+
+	// Закрываем пул
+	p.Close()
+
 	response := parseResult(p)
 
 	// Формируем строку отступа из пробелов
@@ -529,7 +678,7 @@ func GetPageWithLinks(ctx context.Context, urlStr string, httpClient *http.Clien
 		return finalUrl, resp.StatusCode, nil, seoData, err
 	}
 
-	// ← ДОБАВИТЬ: Извлекаем SEO-данные
+	// Извлекаем SEO-данные
 	seoData = ExtractSeoData(string(body))
 
 	return finalUrl, resp.StatusCode, links, seoData, nil
@@ -545,7 +694,7 @@ func NewPageResponse(statusCode int, url string, depth int, links []string, seo 
 		Links:        links,
 		DiscoveredAt: time.Now().UTC().Truncate(time.Second),
 		Error:        error,
-		Seo:          seo, // ← ДОБАВИТЬ
+		Seo:          seo,
 	}
 }
 
