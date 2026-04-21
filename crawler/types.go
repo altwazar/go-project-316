@@ -5,6 +5,23 @@ import (
 	"time"
 )
 
+type AssetType string
+
+const (
+	AssetTypeImage  AssetType = "image"
+	AssetTypeScript AssetType = "script"
+	AssetTypeStyle  AssetType = "style"
+)
+
+// AssetStatus - информация о статусе ассета
+type Asset struct {
+	URL        string    `json:"url"`
+	Type       AssetType `json:"type"`
+	StatusCode int       `json:"status_code"`
+	SizeBytes  int64     `json:"size_bytes"`
+	Error      string    `json:"error"`
+}
+
 // Options - настройки для краулера
 type Options struct {
 	URL         string
@@ -36,6 +53,7 @@ type Page struct {
 	Error        string       `json:"error"`
 	BrokenLinks  []LinkStatus `json:"broken_links"`
 	Links        []string     `json:"-"`
+	Assets       []Asset      `json:"assets"`
 	DiscoveredAt time.Time    `json:"discovered_at"`
 	SEO          SEOData      `json:"seo"`
 }
@@ -43,8 +61,8 @@ type Page struct {
 // LinkStatus - информация о статусе ссылки
 type LinkStatus struct {
 	URL    string `json:"url"`
-	Status int    `json:"status_code,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Status int    `json:"status_code"`
+	Error  string `json:"error"`
 }
 
 // SEOData - SEO-данные
@@ -52,7 +70,7 @@ type SEOData struct {
 	HasTitle       bool   `json:"has_title"`
 	Title          string `json:"title,omitempty"`
 	HasDescription bool   `json:"has_description"`
-	Description    string `json:"description,omitempty"`
+	Description    string `json:"description"`
 	HasH1          bool   `json:"has_h1"`
-	H1             string `json:"h1,omitempty"`
+	H1             string `json:"h1"`
 }

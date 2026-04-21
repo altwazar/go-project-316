@@ -6,35 +6,80 @@ type taskType int
 const (
 	getPageTask taskType = iota
 	checkLinkTask
+	checkAssetTask
 )
 
-// task - структура задачи
 type task struct {
-	url      string
-	taskType taskType
-	depth    int
+	url       string
+	taskType  taskType
+	assetType *AssetType // указатель вместо значения
+	depth     int
 }
 
-// newTask - конструктор
-func newTask(url string, t taskType, depth int) *task {
+func newPageTask(url string, depth int) *task {
 	return &task{
 		url:      url,
-		taskType: t,
+		taskType: getPageTask,
 		depth:    depth,
+	}
+}
+
+func newLinkCheckTask(url string, depth int) *task {
+	return &task{
+		url:      url,
+		taskType: checkLinkTask,
+		depth:    depth,
+	}
+}
+
+func newAssetCheckTask(url string, assetType AssetType) *task {
+	return &task{
+		url:       url,
+		taskType:  checkAssetTask,
+		assetType: &assetType,
 	}
 }
 
 // execute - выполнение задачи
 func (t *task) execute(p *pool) {
 	defer p.taskDone()
-
 	u, err := normalizeURL(t.url)
-
-	if t.taskType == getPageTask {
+	switch t.taskType {
+	case getPageTask:
 		t.executeGetPage(p, u, err)
-	} else {
+	case checkLinkTask:
 		t.executeCheckLink(p, u, err)
+	case checkAssetTask:
+		t.executeCheckAsset(p, u, err)
 	}
+}
+
+// executeCheckAsset - выполнение задачи проверки ассета
+func (t *task) executeCheckAsset(p *pool, u string, err error) {
+	p.mu.Lock()
+	_, inProgress := p.assetChecksInProgress[u]
+	if inProgress {
+		p.mu.Unlock()
+		return
+	}
+	p.assetChecksInProgress[u] = 1
+	p.mu.Unlock()
+
+	asset := Asset{URL: t.url, Type: *t.assetType}
+	if err != nil {
+		asset.Error = err.Error()
+	} else {
+		checkedAsset, err := checkAsset(p.ctx, u, *t.assetType, p.opts.HTTPClient)
+		if err != nil {
+			asset.Error = err.Error()
+		} else {
+			asset = checkedAsset
+		}
+	}
+
+	p.mu.Lock()
+	p.assetsStatuses[u] = asset
+	p.mu.Unlock()
 }
 
 // executeGetPage - выполнение задачи получения данных со страницы
@@ -56,15 +101,18 @@ func (t *task) executeGetPage(p *pool, u string, err error) {
 		if p.opts.Depth > t.depth {
 			for _, ln := range pg.Links {
 				if isSameDomain(p.opts.URL, ln) {
-					p.addTask(newTask(ln, getPageTask, t.depth+1))
+					p.addTask(newPageTask(ln, t.depth+1))
 				} else {
-					p.addTask(newTask(ln, checkLinkTask, t.depth+1))
+					p.addTask(newLinkCheckTask(ln, t.depth+1))
 				}
 			}
 		} else {
 			for _, ln := range pg.Links {
-				p.addTask(newTask(ln, checkLinkTask, t.depth+1))
+				p.addTask(newLinkCheckTask(ln, t.depth+1))
 			}
+		}
+		for _, asset := range pg.Assets {
+			p.addTask(newAssetCheckTask(asset.URL, asset.Type))
 		}
 	}
 
@@ -84,7 +132,7 @@ func (t *task) executeCheckLink(p *pool, u string, err error) {
 	p.linkChecksInProgress[u] = 1
 	p.mu.Unlock()
 
-	ln := LinkStatus{}
+	var ln LinkStatus
 	if err != nil {
 		ln = LinkStatus{URL: t.url, Error: err.Error()}
 	} else {

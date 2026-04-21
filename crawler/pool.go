@@ -9,19 +9,21 @@ import (
 
 // pool - структура с пулом воркеров и настройками
 type pool struct {
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	opts                 Options
-	taskChan             chan task
-	linkChecksInProgress map[string]int
-	getPagesInProgress   map[string]int
-	linkStatuses         map[string]LinkStatus
-	pages                []Page
-	mu                   sync.RWMutex
-	tasksWg              sync.WaitGroup
-	workersWg            sync.WaitGroup
-	doneChan             chan struct{}
-	rateLimiter          *rateLimiter
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	opts                  Options
+	taskChan              chan task
+	linkChecksInProgress  map[string]int
+	getPagesInProgress    map[string]int
+	assetChecksInProgress map[string]int
+	assetsStatuses        map[string]Asset
+	linkStatuses          map[string]LinkStatus
+	pages                 []Page
+	mu                    sync.RWMutex
+	tasksWg               sync.WaitGroup
+	workersWg             sync.WaitGroup
+	doneChan              chan struct{}
+	rateLimiter           *rateLimiter
 }
 
 func newPool(ctx context.Context, opts Options) *pool {
@@ -34,23 +36,25 @@ func newPool(ctx context.Context, opts Options) *pool {
 	taskChanSize := opts.Concurrency * 10
 	taskChanSize = max(taskChanSize, 100)
 	return &pool{
-		ctx:                  ctxWithCancel,
-		cancel:               cancel,
-		opts:                 opts,
-		taskChan:             make(chan task, taskChanSize),
-		linkChecksInProgress: make(map[string]int),
-		getPagesInProgress:   make(map[string]int),
-		linkStatuses:         make(map[string]LinkStatus),
-		pages:                []Page{},
-		tasksWg:              sync.WaitGroup{},
-		workersWg:            sync.WaitGroup{},
-		doneChan:             make(chan struct{}),
-		rateLimiter:          newRateLimiter(opts.RPS, opts.Delay),
+		ctx:                   ctxWithCancel,
+		cancel:                cancel,
+		opts:                  opts,
+		taskChan:              make(chan task, taskChanSize),
+		linkChecksInProgress:  make(map[string]int),
+		getPagesInProgress:    make(map[string]int),
+		assetChecksInProgress: make(map[string]int),
+		assetsStatuses:        make(map[string]Asset),
+		linkStatuses:          make(map[string]LinkStatus),
+		pages:                 []Page{},
+		tasksWg:               sync.WaitGroup{},
+		workersWg:             sync.WaitGroup{},
+		doneChan:              make(chan struct{}),
+		rateLimiter:           newRateLimiter(opts.RPS, opts.Delay),
 	}
 }
 
 func (p *pool) start() {
-	p.addTask(newTask(p.opts.URL, getPageTask, 1))
+	p.addTask(newPageTask(p.opts.URL, 1))
 
 	for i := 0; i < p.opts.Concurrency; i++ {
 		p.workersWg.Add(1)
@@ -105,6 +109,10 @@ func parseResult(p *pool) *AnalyzeLinkResponse {
 			if l, ok := p.linkStatuses[link]; ok && (l.Status >= 400 || l.Error != "") {
 				p.pages[i].BrokenLinks = append(p.pages[i].BrokenLinks, l)
 			}
+		}
+		for a := range p.pages[i].Assets {
+			normalizedURL, _ := normalizeURL(p.pages[i].Assets[a].URL)
+			p.pages[i].Assets[a] = p.assetsStatuses[normalizedURL]
 		}
 	}
 	return newAnalyzeResponse(p.opts.URL, p.opts.Depth, p.pages)
