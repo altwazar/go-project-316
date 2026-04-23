@@ -201,7 +201,7 @@ func (s *retryState) getLastErrorMsg() string {
 	return ""
 }
 
-// getPageWithLinks - получение страницы (снижена сложность до 3)
+// getPageWithLinks - получение страницы
 func getPageWithLinks(ctx context.Context, urlStr string, httpClient *http.Client) (string, int, []string, SEOData, []Asset, error) {
 	page := &pageProcessor{
 		originalURL: urlStr,
