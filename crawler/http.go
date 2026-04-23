@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const httpString = "http"
+
 // Основная функция - оркестратор
 func checkLinkStatus(ctx context.Context, urlStr string, client *http.Client) (int, error) {
 	normalizedURL := normalizeOrKeep(urlStr)
@@ -39,7 +41,7 @@ func parseAndSetScheme(rawURL string) (*url.URL, error) {
 	}
 
 	if parsedURL.Scheme == "" {
-		parsedURL.Scheme = "http"
+		parsedURL.Scheme = httpString
 	}
 
 	return parsedURL, nil
@@ -90,87 +92,218 @@ func doGetRequest(ctx context.Context, urlStr string, client *http.Client) (int,
 
 // getPageWithRetries - получение страницы в несколько попыток
 func getPageWithRetries(ctx context.Context, url string, depth int, opts Options) Page {
-	var lastErr error
+	state := &retryState{
+		ctx:     ctx,
+		url:     url,
+		depth:   depth,
+		opts:    opts,
+		lastErr: nil,
+	}
 
-	for i := 0; i <= opts.Retries; i++ {
-		select {
-		case <-ctx.Done():
-			return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, ctx.Err().Error())
-		default:
-		}
-
-		finalURL, statusCode, links, seoData, assets, err := getPageWithLinks(ctx, url, opts.HTTPClient)
-		if err == nil && statusCode > 0 && statusCode < 500 {
-			return newPageResponse(statusCode, finalURL, depth, links, seoData, assets, "")
-		}
-
-		if err != nil {
-			lastErr = err
-		} else if statusCode >= 500 {
-			lastErr = fmt.Errorf("HTTP %d", statusCode)
-		}
-
-		// Если это последняя попытка, выходим
-		if i == opts.Retries {
-			break
-		}
-
-		if opts.Delay > 0 {
-			select {
-			case <-ctx.Done():
-				return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, ctx.Err().Error())
-			case <-time.After(opts.Delay):
-			}
+	for attempt := 0; attempt <= opts.Retries; attempt++ {
+		if result := state.tryAttempt(attempt); result != nil {
+			return *result
 		}
 	}
 
-	errMsg := ""
-	if lastErr != nil {
-		errMsg = lastErr.Error()
-	}
-	return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, errMsg)
+	return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, state.getLastErrorMsg())
 }
 
-// getPageWithLinks - получение страницы
+// retryState хранит состояние между попытками
+type retryState struct {
+	ctx     context.Context
+	url     string
+	depth   int
+	opts    Options
+	lastErr error
+}
+
+// tryAttempt - одна попытка загрузки страницы
+func (s *retryState) tryAttempt(attempt int) *Page {
+	if s.isContextCancelled() {
+		return s.createCancelledPage()
+	}
+
+	finalURL, statusCode, links, seoData, assets, err := getPageWithLinks(s.ctx, s.url, s.opts.HTTPClient)
+
+	if s.isSuccessful(statusCode, err) {
+		return s.createSuccessPage(finalURL, statusCode, links, seoData, assets)
+	}
+
+	s.updateLastError(statusCode, err)
+
+	if s.shouldRetry(attempt) {
+		s.waitBeforeRetry()
+	}
+
+	return nil
+}
+
+// isContextCancelled - проверка отмены контекста
+func (s *retryState) isContextCancelled() bool {
+	select {
+	case <-s.ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// isSuccessful - проверка успешности запроса
+func (s *retryState) isSuccessful(statusCode int, err error) bool {
+	return err == nil && statusCode > 0 && statusCode < 500
+}
+
+// createCancelledPage - создание страницы с ошибкой отмены
+func (s *retryState) createCancelledPage() *Page {
+	page := newPageResponse(0, s.url, s.depth, nil, SEOData{}, []Asset{}, s.ctx.Err().Error())
+	return &page
+}
+
+// createSuccessPage - создание успешной страницы
+func (s *retryState) createSuccessPage(finalURL string, statusCode int, links []string, seoData SEOData, assets []Asset) *Page {
+	page := newPageResponse(statusCode, finalURL, s.depth, links, seoData, assets, "")
+	return &page
+}
+
+// updateLastError - обновление последней ошибки
+func (s *retryState) updateLastError(statusCode int, err error) {
+	if err != nil {
+		s.lastErr = err
+	} else if statusCode >= 500 {
+		s.lastErr = fmt.Errorf("HTTP %d", statusCode)
+	}
+}
+
+// shouldRetry - проверка необходимости повторной попытки
+func (s *retryState) shouldRetry(attempt int) bool {
+	return attempt < s.opts.Retries
+}
+
+// waitBeforeRetry - ожидание перед повтором
+func (s *retryState) waitBeforeRetry() {
+	if s.opts.Delay <= 0 {
+		return
+	}
+
+	select {
+	case <-s.ctx.Done():
+		return
+	case <-time.After(s.opts.Delay):
+	}
+}
+
+// getLastErrorMsg - получение сообщения последней ошибки
+func (s *retryState) getLastErrorMsg() string {
+	if s.lastErr != nil {
+		return s.lastErr.Error()
+	}
+	return ""
+}
+
+// getPageWithLinks - получение страницы (снижена сложность до 3)
 func getPageWithLinks(ctx context.Context, urlStr string, httpClient *http.Client) (string, int, []string, SEOData, []Asset, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
-	if err != nil {
+	page := &pageProcessor{
+		originalURL: urlStr,
+		httpClient:  httpClient,
+	}
+
+	if err := page.fetchPage(ctx, urlStr); err != nil {
 		return urlStr, 0, nil, SEOData{}, []Asset{}, err
 	}
+	defer page.closeResponse()
 
-	resp, err := httpClient.Do(req)
+	if !page.isHTML() {
+		return page.finalURL, page.statusCode, nil, SEOData{}, []Asset{}, nil
+	}
+
+	if err := page.processHTML(); err != nil {
+		return page.finalURL, page.statusCode, nil, SEOData{}, []Asset{}, err
+	}
+
+	return page.finalURL, page.statusCode, page.links, page.seo, page.assets, nil
+}
+
+// pageProcessor - структура для обработки страницы
+type pageProcessor struct {
+	originalURL string
+	httpClient  *http.Client
+	resp        *http.Response
+	finalURL    string
+	statusCode  int
+	links       []string
+	assets      []Asset
+	seo         SEOData
+	htmlBody    string
+}
+
+// fetchPage - загрузка страницы
+func (p *pageProcessor) fetchPage(ctx context.Context, urlStr string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
-		return urlStr, 0, nil, SEOData{}, []Asset{}, err
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	finalURL := resp.Request.URL.String()
-
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "text/html") {
-		return finalURL, resp.StatusCode, nil, SEOData{}, []Asset{}, nil
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	const maxSize = 10 * 1024 * 1024
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return finalURL, resp.StatusCode, nil, SEOData{}, []Asset{}, fmt.Errorf("failed to read body: %w", err)
+		return fmt.Errorf("request execution failed: %w", err)
 	}
 
-	baseURL, err := url.Parse(urlStr)
+	p.resp = resp
+	p.finalURL = resp.Request.URL.String()
+	p.statusCode = resp.StatusCode
+
+	return nil
+}
+
+// closeResponse - закрытие тела ответа
+func (p *pageProcessor) closeResponse() {
+	if p.resp != nil {
+		_ = p.resp.Body.Close()
+	}
+}
+
+// isHTML - проверка HTML контента
+func (p *pageProcessor) isHTML() bool {
+	contentType := p.resp.Header.Get("Content-Type")
+	return strings.Contains(contentType, "text/html")
+}
+
+// processHTML - обработка HTML контента
+func (p *pageProcessor) processHTML() error {
+	if err := p.readHTMLBody(); err != nil {
+		return err
+	}
+
+	baseURL, err := url.Parse(p.originalURL)
 	if err != nil {
-		return finalURL, resp.StatusCode, nil, SEOData{}, []Asset{}, fmt.Errorf("failed to parse base URL: %w", err)
+		return fmt.Errorf("failed to parse base URL: %w", err)
 	}
 
-	links, assets, err := extractLinksAndAssets(string(body), baseURL)
+	links, assets, err := extractLinksAndAssets(p.htmlBody, baseURL)
 	if err != nil {
-		return finalURL, resp.StatusCode, nil, SEOData{}, []Asset{}, err
+		return fmt.Errorf("failed to extract links and assets: %w", err)
 	}
 
-	seoData := extractSEOData(string(body))
+	p.links = links
+	p.assets = assets
+	p.seo = extractSEOData(p.htmlBody)
 
-	return finalURL, resp.StatusCode, links, seoData, assets, nil
+	return nil
+}
+
+// readHTMLBody - чтение тела с ограничением
+func (p *pageProcessor) readHTMLBody() error {
+	const maxSize = 10 * 1024 * 1024 // 10MB
+
+	limitedReader := io.LimitReader(p.resp.Body, maxSize)
+	bodyBytes, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return fmt.Errorf("failed to read body: %w", err)
+	}
+
+	p.htmlBody = string(bodyBytes)
+	return nil
 }
 
 func newPageResponse(statusCode int, url string, depth int, links []string, seo SEOData, assets []Asset, errMsg string) Page {
@@ -198,52 +331,87 @@ func getStatusString(statusCode int) string {
 	}
 }
 
-// checkAsset - проверка ассета и получение его размера
+// checkAsset - проверка ассета и получение его размера (сложность 3)
 func checkAsset(ctx context.Context, urlStr string, assetType AssetType, client *http.Client) (Asset, error) {
-	parsedURL, err := url.Parse(urlStr)
+	asset := createBaseAsset(urlStr, assetType)
+
+	validatedURL, err := validateAndNormalizeURL(urlStr)
 	if err != nil {
-		return Asset{URL: urlStr, Type: assetType, Error: fmt.Sprintf("invalid URL: %v", err)}, err
-	}
-	if parsedURL.Scheme == "" {
-		parsedURL.Scheme = "http"
+		asset.Error = err.Error()
+		return asset, err
 	}
 
-	asset := Asset{
+	resp, err := executeAssetRequest(ctx, validatedURL, client)
+	if err != nil {
+		asset.Error = fmt.Sprintf("request failed: %v", err)
+		return asset, err
+	}
+	defer resp.Body.Close()
+
+	return processAssetResponse(asset, resp), nil
+}
+
+// createBaseAsset - создание базовой структуры ассета
+func createBaseAsset(urlStr string, assetType AssetType) Asset {
+	return Asset{
 		URL:        urlStr,
 		Type:       assetType,
 		StatusCode: 0,
 		SizeBytes:  0,
 	}
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
+// validateAndNormalizeURL - валидация и нормализация URL
+func validateAndNormalizeURL(rawURL string) (string, error) {
+	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		asset.Error = fmt.Sprintf("failed to create request: %v", err)
-		return asset, err
+		return "", fmt.Errorf("invalid URL: %w", err)
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		asset.Error = fmt.Sprintf("request failed: %v", err)
-		return asset, err
+	if parsedURL.Scheme == "" {
+		parsedURL.Scheme = httpString
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+
+	return parsedURL.String(), nil
+}
+
+// executeAssetRequest - выполнение запроса для ассета
+func executeAssetRequest(ctx context.Context, urlStr string, client *http.Client) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	return client.Do(req)
+}
+
+// processAssetResponse - обработка ответа для ассета
+func processAssetResponse(asset Asset, resp *http.Response) Asset {
 	asset.StatusCode = resp.StatusCode
 
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		size, err := getContentSize(resp)
-		if err != nil {
-			asset.SizeBytes = 0
-			asset.Error = fmt.Sprintf("failed to get size: %v", err)
-		} else {
-			asset.SizeBytes = size
-		}
-	} else {
-		asset.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+	if isSuccessStatusCode(resp.StatusCode) {
+		return processSuccessfulAsset(asset, resp)
 	}
 
-	return asset, nil
+	asset.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+	return asset
+}
+
+// isSuccessStatusCode - проверка успешного статуса
+func isSuccessStatusCode(statusCode int) bool {
+	return statusCode >= 200 && statusCode < 300
+}
+
+// processSuccessfulAsset - обработка успешного ассета
+func processSuccessfulAsset(asset Asset, resp *http.Response) Asset {
+	size, err := getContentSize(resp)
+	if err != nil {
+		asset.SizeBytes = 0
+		asset.Error = fmt.Sprintf("failed to get size: %v", err)
+	} else {
+		asset.SizeBytes = size
+	}
+	return asset
 }
 
 // getContentSize - получение размера контента
