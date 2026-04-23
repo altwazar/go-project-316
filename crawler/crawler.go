@@ -1,3 +1,4 @@
+// Package crawler - пакет с основной функцией, нужно по заданию
 package crawler
 
 import (

@@ -1,3 +1,4 @@
+// Package main - точка входа в программу
 package main
 
 import (
@@ -53,46 +54,50 @@ func main() {
 				Usage: "number of concurrent workers (default: 4)",
 			},
 		},
-		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if cmd.NArg() != 1 {
-				err := cli.ShowAppHelp(cmd)
-				if err != nil {
-					log.Fatal(err)
-				}
-				return cli.Exit("Error: requires one argument - url", 1)
-			}
 
-			delay := cmd.Duration("delay")
-			rps := cmd.Int("rps")
-
-			if rps > 0 {
-				delay = 0
-			}
-
-			opts := crawler.Options{
-				URL:         cmd.Args().Get(0),
-				Depth:       cmd.Int("depth"),
-				Delay:       delay,
-				Timeout:     cmd.Duration("timeout"),
-				Retries:     cmd.Int("retries"),
-				UserAgent:   cmd.String("user-agent"),
-				Concurrency: cmd.Int("workers"),
-				RPS:         rps,
-				HTTPClient: &http.Client{
-					Timeout: cmd.Duration("timeout"),
-				},
-			}
-
-			out, err := crawler.Analyze(ctx, opts)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println(string(out))
-			return nil
-		},
+		Action: runCrawler,
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func createOptions(cmd *cli.Command) crawler.Options {
+	delay := cmd.Duration("delay")
+	rps := cmd.Int("rps")
+
+	if rps > 0 {
+		delay = 0
+	}
+
+	return crawler.Options{
+		URL:         cmd.Args().Get(0),
+		Depth:       cmd.Int("depth"),
+		Delay:       delay,
+		Timeout:     cmd.Duration("timeout"),
+		Retries:     cmd.Int("retries"),
+		UserAgent:   cmd.String("user-agent"),
+		Concurrency: cmd.Int("workers"),
+		RPS:         rps,
+		HTTPClient: &http.Client{
+			Timeout: cmd.Duration("timeout"),
+		},
+	}
+}
+
+func runCrawler(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() != 1 {
+		return cli.Exit("Error: requires one argument - url", 1)
+	}
+
+	opts := createOptions(cmd)
+
+	out, err := crawler.Analyze(ctx, opts)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(out))
+	return nil
 }

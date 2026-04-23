@@ -5,15 +5,19 @@ import (
 	"time"
 )
 
+// AssetType - тип ассета
 type AssetType string
 
 const (
-	AssetTypeImage  AssetType = "image"
+	// AssetTypeImage - картинка
+	AssetTypeImage AssetType = "image"
+	// AssetTypeScript - скрипт
 	AssetTypeScript AssetType = "script"
-	AssetTypeStyle  AssetType = "style"
+	// AssetTypeStyle - стиль
+	AssetTypeStyle AssetType = "style"
 )
 
-// AssetStatus - информация о статусе ассета
+// Asset - информация о  ассете
 type Asset struct {
 	URL        string    `json:"url"`
 	Type       AssetType `json:"type"`
