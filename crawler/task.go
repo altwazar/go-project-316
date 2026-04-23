@@ -33,8 +33,12 @@ func newLinkCheckTask(url string, depth int) *task {
 }
 
 func newAssetCheckTask(url string, assetType AssetType) *task {
+	normalizedURL, err := normalizeURL(url)
+	if err != nil {
+		normalizedURL = url
+	}
 	return &task{
-		url:       url,
+		url:       normalizedURL,
 		taskType:  checkAssetTask,
 		assetType: &assetType,
 	}

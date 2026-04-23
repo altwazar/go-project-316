@@ -15,7 +15,10 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}
 	}
 
-	p := newPool(ctx, opts)
+	p, err := newPool(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
 	p.start()
 	p.wait()
 	p.close()

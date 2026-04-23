@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+// decodeHTMLEntities - декодирует HTML-сущности в тексте
+func decodeHTMLEntities(s string) string {
+	return html.UnescapeString(s)
+}
+
 // detectAssetType - определение типа ассета по расширению и тегу
 func detectAssetType(urlStr string) AssetType {
 	lowerURL := strings.ToLower(urlStr)
@@ -231,7 +236,7 @@ func extractSEOData(htmlContent string) SEOData {
 		if n.Type == html.ElementNode {
 			if n.Data == "title" && n.FirstChild != nil {
 				seo.HasTitle = true
-				seo.Title = strings.TrimSpace(n.FirstChild.Data)
+				seo.Title = decodeHTMLEntities(strings.TrimSpace(n.FirstChild.Data))
 			}
 
 			if n.Data == "meta" {
@@ -246,13 +251,13 @@ func extractSEOData(htmlContent string) SEOData {
 				}
 				if name == "description" && content != "" {
 					seo.HasDescription = true
-					seo.Description = strings.TrimSpace(content)
+					seo.Description = decodeHTMLEntities(strings.TrimSpace(content))
 				}
 			}
 
 			if n.Data == "h1" && n.FirstChild != nil {
 				seo.HasH1 = true
-				seo.H1 = strings.TrimSpace(n.FirstChild.Data)
+				seo.H1 = decodeHTMLEntities(strings.TrimSpace(n.FirstChild.Data))
 			}
 		}
 
@@ -279,9 +284,14 @@ func normalizeURL(rawURL string) (string, error) {
 		u.Host = strings.TrimSuffix(u.Host, ":"+u.Port())
 	}
 
-	u.Path = strings.TrimRight(u.Path, "/")
+	// Для корневого пути оставляем слеш
 	if u.Path == "" {
 		u.Path = "/"
+	} else {
+		u.Path = strings.TrimRight(u.Path, "/")
+		if u.Path == "" {
+			u.Path = "/"
+		}
 	}
 
 	u.Fragment = ""

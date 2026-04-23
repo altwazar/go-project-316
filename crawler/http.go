@@ -10,44 +10,82 @@ import (
 	"time"
 )
 
-// checkLinkStatus - проверка статуса ссылки
+// Основная функция - оркестратор
 func checkLinkStatus(ctx context.Context, urlStr string, client *http.Client) (int, error) {
-	parsedURL, err := url.Parse(urlStr)
+	normalizedURL := normalizeOrKeep(urlStr)
+
+	parsedURL, err := parseAndSetScheme(normalizedURL)
 	if err != nil {
-		return 0, fmt.Errorf("invalid URL: %w", err)
+		return 0, err
 	}
+
+	return attemptRequest(ctx, parsedURL.String(), client)
+}
+
+// Нормализация с fallback
+func normalizeOrKeep(urlStr string) string {
+	normalizedURL, err := normalizeURL(urlStr)
+	if err != nil {
+		return urlStr
+	}
+	return normalizedURL
+}
+
+// Парсинг и установка схемы по умолчанию
+func parseAndSetScheme(rawURL string) (*url.URL, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+
 	if parsedURL.Scheme == "" {
 		parsedURL.Scheme = "http"
 	}
 
-	// HEAD запрос
-	headReq, err := http.NewRequestWithContext(ctx, http.MethodHead, parsedURL.String(), nil)
+	return parsedURL, nil
+}
+
+// Попытка выполнения запроса с fallback на GET
+func attemptRequest(ctx context.Context, urlStr string, client *http.Client) (int, error) {
+	// Пробуем HEAD запрос
+	if statusCode, err := doHeadRequest(ctx, urlStr, client); err == nil {
+		return statusCode, nil
+	}
+
+	// Fallback на GET
+	return doGetRequest(ctx, urlStr, client)
+}
+
+// Выполнение HEAD запроса
+func doHeadRequest(ctx context.Context, urlStr string, client *http.Client) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, urlStr, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create HEAD request: %w", err)
 	}
 
-	headResp, err := client.Do(headReq)
-	if err == nil {
-		defer func() {
-			_ = headResp.Body.Close()
-		}()
-		return headResp.StatusCode, nil
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
 	}
+	defer resp.Body.Close()
 
-	// GET запрос как fallback
-	getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
+	return resp.StatusCode, nil
+}
+
+// Выполнение GET запроса
+func doGetRequest(ctx context.Context, urlStr string, client *http.Client) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create GET request: %w", err)
 	}
 
-	getResp, err := client.Do(getReq)
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("both HEAD and GET requests failed: %w", err)
 	}
-	defer func() {
-		_ = getResp.Body.Close()
-	}()
-	return getResp.StatusCode, nil
+	defer resp.Body.Close()
+
+	return resp.StatusCode, nil
 }
 
 // getPageWithRetries - получение страницы в несколько попыток
@@ -62,22 +100,35 @@ func getPageWithRetries(ctx context.Context, url string, depth int, opts Options
 		}
 
 		finalURL, statusCode, links, seoData, assets, err := getPageWithLinks(ctx, url, opts.HTTPClient)
-		if err == nil && statusCode < 500 {
-			return newPageResponse(statusCode, url, depth, links, seoData, assets, "")
+		if err == nil && statusCode > 0 && statusCode < 500 {
+			return newPageResponse(statusCode, finalURL, depth, links, seoData, assets, "")
 		}
 
-		lastErr = err
+		if err != nil {
+			lastErr = err
+		} else if statusCode >= 500 {
+			lastErr = fmt.Errorf("HTTP %d", statusCode)
+		}
 
-		if i < opts.Retries && opts.Delay > 0 {
+		// Если это последняя попытка, выходим
+		if i == opts.Retries {
+			break
+		}
+
+		if opts.Delay > 0 {
 			select {
 			case <-ctx.Done():
-				return newPageResponse(0, finalURL, depth, nil, SEOData{}, []Asset{}, ctx.Err().Error())
+				return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, ctx.Err().Error())
 			case <-time.After(opts.Delay):
 			}
 		}
 	}
 
-	return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, lastErr.Error())
+	errMsg := ""
+	if lastErr != nil {
+		errMsg = lastErr.Error()
+	}
+	return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, errMsg)
 }
 
 // getPageWithLinks - получение страницы

@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 )
@@ -26,9 +25,9 @@ type pool struct {
 	rateLimiter           *rateLimiter
 }
 
-func newPool(ctx context.Context, opts Options) *pool {
+func newPool(ctx context.Context, opts Options) (*pool, error) {
 	if _, err := normalizeURL(opts.URL); err != nil {
-		log.Fatal("Ошибка с корневым url: ", err)
+		return &pool{}, err
 	}
 
 	ctxWithCancel, cancel := context.WithCancel(ctx)
@@ -50,7 +49,7 @@ func newPool(ctx context.Context, opts Options) *pool {
 		workersWg:             sync.WaitGroup{},
 		doneChan:              make(chan struct{}),
 		rateLimiter:           newRateLimiter(opts.RPS, opts.Delay),
-	}
+	}, nil
 }
 
 func (p *pool) start() {
