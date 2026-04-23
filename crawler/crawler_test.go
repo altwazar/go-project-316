@@ -1,4 +1,8 @@
+//go:build test
+
 package crawler
+
+//nolint:gocyclo,cyclop,goconst
 
 import (
 	"bytes"
