@@ -101,20 +101,48 @@ func worker(p *pool) {
 	}
 }
 
-// parseResult - формирование отчёта
+// parseResult - формирование отчёта (сложность 3)
 func parseResult(p *pool) *AnalyzeLinkResponse {
 	for i := range p.pages {
-		for _, link := range p.pages[i].Links {
-			if l, ok := p.linkStatuses[link]; ok && (l.Status >= 400 || l.Error != "") {
-				p.pages[i].BrokenLinks = append(p.pages[i].BrokenLinks, l)
-			}
-		}
-		for a := range p.pages[i].Assets {
-			normalizedURL, _ := normalizeURL(p.pages[i].Assets[a].URL)
-			p.pages[i].Assets[a] = p.assetsStatuses[normalizedURL]
-		}
+		p.processPageBrokenLinks(i)
+		p.processPageAssets(i)
 	}
 	return newAnalyzeResponse(p.opts.URL, p.opts.Depth, p.pages)
+}
+
+// processPageBrokenLinks - обработка битых ссылок на странице
+func (p *pool) processPageBrokenLinks(pageIndex int) {
+	for _, link := range p.pages[pageIndex].Links {
+		if p.isBrokenLink(link) {
+			p.pages[pageIndex].BrokenLinks = append(p.pages[pageIndex].BrokenLinks, p.linkStatuses[link])
+		}
+	}
+}
+
+// isBrokenLink - проверка является ли ссылка битой
+func (p *pool) isBrokenLink(link string) bool {
+	status, exists := p.linkStatuses[link]
+	if !exists {
+		return false
+	}
+	return status.Status >= 400 || status.Error != ""
+}
+
+// processPageAssets - обработка ассетов на странице
+func (p *pool) processPageAssets(pageIndex int) {
+	for assetIdx := range p.pages[pageIndex].Assets {
+		p.updateAssetWithStatus(pageIndex, assetIdx)
+	}
+}
+
+// updateAssetWithStatus - обновление ассета статусом
+func (p *pool) updateAssetWithStatus(pageIndex, assetIndex int) {
+	assetURL := p.pages[pageIndex].Assets[assetIndex].URL
+	normalizedURL, _ := normalizeURL(assetURL)
+
+	if statusAsset, exists := p.assetsStatuses[normalizedURL]; exists {
+		p.pages[pageIndex].Assets[assetIndex] = statusAsset
+	}
 }
 
 func newAnalyzeResponse(rootURL string, depth int, pages []Page) *AnalyzeLinkResponse {

@@ -10,17 +10,23 @@ type rateLimiter struct {
 	limiter *rate.Limiter
 }
 
+// newRateLimiter - создание ограничителя скорости
 func newRateLimiter(rps int, delay time.Duration) *rateLimiter {
-	var limit rate.Limit
-	if rps > 0 {
-		limit = rate.Limit(rps)
-	} else if delay > 0 {
-		limit = rate.Limit(1.0 / delay.Seconds())
-	} else {
-		limit = rate.Inf
-	}
+	limit := getRateLimit(rps, delay)
 	return &rateLimiter{
 		limiter: rate.NewLimiter(limit, 1),
+	}
+}
+
+// getRateLimit - получение лимита на основе параметров
+func getRateLimit(rps int, delay time.Duration) rate.Limit {
+	switch {
+	case rps > 0:
+		return rate.Limit(rps)
+	case delay > 0:
+		return rate.Limit(1.0 / delay.Seconds())
+	default:
+		return rate.Inf
 	}
 }
 

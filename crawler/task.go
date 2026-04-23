@@ -88,41 +88,65 @@ func (t *task) executeCheckAsset(p *pool, u string, err error) {
 
 // executeGetPage - выполнение задачи получения данных со страницы
 func (t *task) executeGetPage(p *pool, u string, err error) {
-	p.mu.Lock()
-	_, inProgress := p.getPagesInProgress[u]
-	if inProgress {
-		p.mu.Unlock()
+	if t.shouldSkipDuplicatePage(p, u) {
 		return
 	}
-	p.getPagesInProgress[u] = 1
-	p.mu.Unlock()
 
-	pg := Page{}
-	if err != nil {
-		pg = Page{URL: t.url, Error: err.Error()}
-	} else {
-		pg = getPageWithRetries(p.ctx, u, t.depth, p.opts)
-		if p.opts.Depth > t.depth {
-			for _, ln := range pg.Links {
-				if isSameDomain(p.opts.URL, ln) {
-					p.addTask(newPageTask(ln, t.depth+1))
-				} else {
-					p.addTask(newLinkCheckTask(ln, t.depth+1))
-				}
-			}
-		} else {
-			for _, ln := range pg.Links {
-				p.addTask(newLinkCheckTask(ln, t.depth+1))
-			}
-		}
-		for _, asset := range pg.Assets {
-			p.addTask(newAssetCheckTask(asset.URL, asset.Type))
-		}
-	}
+	pg := t.fetchPage(p, u, err)
 
 	p.mu.Lock()
 	p.pages = append(p.pages, pg)
 	p.mu.Unlock()
+}
+
+// shouldSkipDuplicatePage - проверяет, не выполняется ли уже эта страница
+func (t *task) shouldSkipDuplicatePage(p *pool, u string) bool {
+	p.mu.Lock()
+	_, inProgress := p.getPagesInProgress[u]
+	if inProgress {
+		p.mu.Unlock()
+		return true
+	}
+	p.getPagesInProgress[u] = 1
+	p.mu.Unlock()
+	return false
+}
+
+// fetchPage - получение страницы и создание подзадач
+func (t *task) fetchPage(p *pool, u string, err error) Page {
+	if err != nil {
+		return Page{URL: t.url, Error: err.Error()}
+	}
+
+	pg := getPageWithRetries(p.ctx, u, t.depth, p.opts)
+	t.scheduleChildTasks(p, &pg)
+	return pg
+}
+
+// scheduleChildTasks - создание подзадач на основе полученной страницы
+func (t *task) scheduleChildTasks(p *pool, pg *Page) {
+	t.scheduleLinkTasks(p, pg)
+	t.scheduleAssetTasks(p, pg)
+}
+
+// scheduleLinkTasks - создание задач для ссылок
+func (t *task) scheduleLinkTasks(p *pool, pg *Page) {
+	shouldCrawlDeeper := p.opts.Depth > t.depth
+
+	for _, ln := range pg.Links {
+		if shouldCrawlDeeper && isSameDomain(p.opts.URL, ln) {
+			p.addTask(newPageTask(ln, t.depth+1))
+		} else {
+			p.addTask(newLinkCheckTask(ln, t.depth+1))
+		}
+	}
+}
+
+// scheduleAssetTasks - создание задач для ассетов
+func (t *task) scheduleAssetTasks(p *pool, pg *Page) {
+	for _, asset := range pg.Assets {
+		p.addTask(newAssetCheckTask(asset.URL, asset.Type))
+	}
 }
 
 // executeCheckLink - выполнение задачи проверки проверки ссылки
