@@ -10,86 +10,6 @@ import (
 	"time"
 )
 
-const httpString = "http"
-
-// Основная функция - оркестратор
-func checkLinkStatus(ctx context.Context, urlStr string, client *http.Client) (int, error) {
-	normalizedURL := normalizeOrKeep(urlStr)
-
-	parsedURL, err := parseAndSetScheme(normalizedURL)
-	if err != nil {
-		return 0, err
-	}
-
-	return attemptRequest(ctx, parsedURL.String(), client)
-}
-
-// Нормализация с fallback
-func normalizeOrKeep(urlStr string) string {
-	normalizedURL, err := normalizeURL(urlStr)
-	if err != nil {
-		return urlStr
-	}
-	return normalizedURL
-}
-
-// Парсинг и установка схемы по умолчанию
-func parseAndSetScheme(rawURL string) (*url.URL, error) {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-
-	if parsedURL.Scheme == "" {
-		parsedURL.Scheme = httpString
-	}
-
-	return parsedURL, nil
-}
-
-// Попытка выполнения запроса с fallback на GET
-func attemptRequest(ctx context.Context, urlStr string, client *http.Client) (int, error) {
-	// Пробуем HEAD запрос
-	if statusCode, err := doHeadRequest(ctx, urlStr, client); err == nil {
-		return statusCode, nil
-	}
-
-	// Fallback на GET
-	return doGetRequest(ctx, urlStr, client)
-}
-
-// Выполнение HEAD запроса
-func doHeadRequest(ctx context.Context, urlStr string, client *http.Client) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, urlStr, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create HEAD request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode, nil
-}
-
-// Выполнение GET запроса
-func doGetRequest(ctx context.Context, urlStr string, client *http.Client) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create GET request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("both HEAD and GET requests failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode, nil
-}
-
 // getPageWithRetries - получение страницы в несколько попыток
 func getPageWithRetries(ctx context.Context, url string, depth int, opts Options) Page {
 	state := &retryState{
@@ -294,9 +214,7 @@ func (p *pageProcessor) processHTML() error {
 
 // readHTMLBody - чтение тела с ограничением
 func (p *pageProcessor) readHTMLBody() error {
-	const maxSize = 10 * 1024 * 1024 // 10MB
-
-	limitedReader := io.LimitReader(p.resp.Body, maxSize)
+	limitedReader := io.LimitReader(p.resp.Body, MaxHTMLBodySize)
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return fmt.Errorf("failed to read body: %w", err)
@@ -306,6 +224,7 @@ func (p *pageProcessor) readHTMLBody() error {
 	return nil
 }
 
+// newPageResponse - создание ответа страницы
 func newPageResponse(statusCode int, url string, depth int, links []string, seo SEOData, assets []Asset, errMsg string) Page {
 	return Page{
 		URL:          url,
@@ -325,107 +244,8 @@ func newPageResponse(statusCode int, url string, depth int, links []string, seo 
 func getStatusString(statusCode int) string {
 	switch statusCode {
 	case 200, 201, 202, 204:
-		return "ok"
+		return StatusOK
 	default:
-		return "error"
+		return StatusError
 	}
-}
-
-// checkAsset - проверка ассета и получение его размера (сложность 3)
-func checkAsset(ctx context.Context, urlStr string, assetType AssetType, client *http.Client) (Asset, error) {
-	asset := createBaseAsset(urlStr, assetType)
-
-	validatedURL, err := validateAndNormalizeURL(urlStr)
-	if err != nil {
-		asset.Error = err.Error()
-		return asset, err
-	}
-
-	resp, err := executeAssetRequest(ctx, validatedURL, client)
-	if err != nil {
-		asset.Error = fmt.Sprintf("request failed: %v", err)
-		return asset, err
-	}
-	defer resp.Body.Close()
-
-	return processAssetResponse(asset, resp), nil
-}
-
-// createBaseAsset - создание базовой структуры ассета
-func createBaseAsset(urlStr string, assetType AssetType) Asset {
-	return Asset{
-		URL:        urlStr,
-		Type:       assetType,
-		StatusCode: 0,
-		SizeBytes:  0,
-	}
-}
-
-// validateAndNormalizeURL - валидация и нормализация URL
-func validateAndNormalizeURL(rawURL string) (string, error) {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
-	}
-
-	if parsedURL.Scheme == "" {
-		parsedURL.Scheme = httpString
-	}
-
-	return parsedURL.String(), nil
-}
-
-// executeAssetRequest - выполнение запроса для ассета
-func executeAssetRequest(ctx context.Context, urlStr string, client *http.Client) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	return client.Do(req)
-}
-
-// processAssetResponse - обработка ответа для ассета
-func processAssetResponse(asset Asset, resp *http.Response) Asset {
-	asset.StatusCode = resp.StatusCode
-
-	if isSuccessStatusCode(resp.StatusCode) {
-		return processSuccessfulAsset(asset, resp)
-	}
-
-	asset.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
-	return asset
-}
-
-// isSuccessStatusCode - проверка успешного статуса
-func isSuccessStatusCode(statusCode int) bool {
-	return statusCode >= 200 && statusCode < 300
-}
-
-// processSuccessfulAsset - обработка успешного ассета
-func processSuccessfulAsset(asset Asset, resp *http.Response) Asset {
-	size, err := getContentSize(resp)
-	if err != nil {
-		asset.SizeBytes = 0
-		asset.Error = fmt.Sprintf("failed to get size: %v", err)
-	} else {
-		asset.SizeBytes = size
-	}
-	return asset
-}
-
-// getContentSize - получение размера контента
-func getContentSize(resp *http.Response) (int64, error) {
-	if resp.ContentLength >= 0 {
-		return resp.ContentLength, nil
-	}
-
-	// Читаем тело для определения размера
-	const maxSize = 50 * 1024 * 1024 // 50MB максимум для ассетов
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
-	if err != nil {
-		return 0, fmt.Errorf("failed to read body: %w", err)
-	}
-
-	return int64(len(body)), nil
 }
