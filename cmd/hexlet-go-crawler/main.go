@@ -16,7 +16,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:      "hexlet-go-crawler",
 		Usage:     "[global options] command [command options] <url>",
-		UsageText: "hexlet-path-size [global options]",
+		UsageText: "hexlet-go-crawler [global options]",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:  "depth",
