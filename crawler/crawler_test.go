@@ -660,8 +660,8 @@ func TestJSONResponseComparison(t *testing.T) {
 	for _, link := range page.BrokenLinks {
 		if strings.Contains(link.URL, "/missing") {
 			foundBrokenLink = true
-			if link.Status != 404 {
-				t.Errorf("Expected broken link status 404, got %d", link.Status)
+			if link.StatusCode != 404 {
+				t.Errorf("Expected broken link status 404, got %d", link.StatusCode)
 			}
 			break
 		}

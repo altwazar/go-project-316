@@ -166,7 +166,7 @@ func (t *task) executeCheckLink(p *pool, u string, err error) {
 	} else {
 		s, err := checkLinkStatus(p.ctx, u, p.opts.HTTPClient)
 		if err == nil {
-			ln = LinkStatus{URL: t.url, Status: s}
+			ln = LinkStatus{URL: t.url, StatusCode: s}
 		} else {
 			ln = LinkStatus{URL: t.url, Error: err.Error()}
 		}

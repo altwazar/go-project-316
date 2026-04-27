@@ -125,7 +125,7 @@ func (p *pool) isBrokenLink(link string) bool {
 	if !exists {
 		return false
 	}
-	return status.Status >= 400 || status.Error != ""
+	return status.StatusCode >= 400 || status.Error != ""
 }
 
 // processPageAssets - обработка ассетов на странице
