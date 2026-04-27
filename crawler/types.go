@@ -64,9 +64,9 @@ type Page struct {
 
 // LinkStatus - информация о статусе ссылки
 type LinkStatus struct {
-	URL    string `json:"url"`
-	Status int    `json:"status_code"`
-	Error  string `json:"error"`
+	URL        string `json:"url"`
+	StatusCode int    `json:"status_code"`
+	Error      string `json:"error"`
 }
 
 // SEOData - SEO-данные
