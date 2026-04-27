@@ -56,7 +56,7 @@ func TestSuccessfulRequest(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestNetworkError(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestNotFoundStatus(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestSEODataExists(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestSEODataMissing(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestRetriesSuccess(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestAssetDeduplication(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -610,6 +610,7 @@ func TestJSONResponseComparison(t *testing.T) {
 		Timeout:     5 * time.Second,
 		Retries:     1,
 		Concurrency: 4,
+		IndentJSON:  true,
 		HTTPClient:  client,
 	}
 
@@ -630,7 +631,7 @@ func TestJSONResponseComparison(t *testing.T) {
 		t.Error("Missing page was not requested")
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -708,7 +709,7 @@ func TestTimeout(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1055,7 +1056,7 @@ func TestDepthLimit(t *testing.T) {
 				t.Fatalf("Analyze failed: %v", err)
 			}
 
-			var response AnalyzeLinkResponse
+			var response Report
 			if err := json.Unmarshal(result, &response); err != nil {
 				t.Fatalf("Failed to unmarshal response: %v", err)
 			}
@@ -1160,7 +1161,7 @@ func TestExternalLinksNotCrawled(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1248,7 +1249,7 @@ func TestDuplicateLinksDeduplication(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1404,7 +1405,7 @@ func TestContextCancellationGracefulShutdown(t *testing.T) {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1533,7 +1534,7 @@ func TestContextCancellationPartialResults(t *testing.T) {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	var response AnalyzeLinkResponse
+	var response Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}

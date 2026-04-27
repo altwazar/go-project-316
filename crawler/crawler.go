@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 )
 
 // Analyze - точка входа в краулер
@@ -27,9 +26,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	response := parseResult(p)
 
 	indent := "  "
-	if opts.IndentJSON > 0 {
-		indent = strings.Repeat(" ", opts.IndentJSON)
+	if opts.IndentJSON {
+		return json.MarshalIndent(response, "", indent)
 	}
-
-	return json.MarshalIndent(response, "", indent)
+	return json.Marshal(response)
 }

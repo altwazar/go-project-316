@@ -102,7 +102,7 @@ func worker(p *pool) {
 }
 
 // parseResult - формирование отчёта (сложность 3)
-func parseResult(p *pool) *AnalyzeLinkResponse {
+func parseResult(p *pool) *Report {
 	for i := range p.pages {
 		p.processPageBrokenLinks(i)
 		p.processPageAssets(i)
@@ -145,8 +145,8 @@ func (p *pool) updateAssetWithStatus(pageIndex, assetIndex int) {
 	}
 }
 
-func newAnalyzeResponse(rootURL string, depth int, pages []Page) *AnalyzeLinkResponse {
-	return &AnalyzeLinkResponse{
+func newAnalyzeResponse(rootURL string, depth int, pages []Page) *Report {
+	return &Report{
 		RootURL:     rootURL,
 		Depth:       depth,
 		GeneratedAt: time.Now().UTC().Truncate(time.Second),

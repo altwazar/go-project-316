@@ -36,12 +36,12 @@ type Options struct {
 	UserAgent   string
 	Concurrency int
 	RPS         int
-	IndentJSON  int
+	IndentJSON  bool
 	HTTPClient  *http.Client
 }
 
-// AnalyzeLinkResponse - структура с отчетом
-type AnalyzeLinkResponse struct {
+// Report - структура с отчетом
+type Report struct {
 	RootURL     string    `json:"root_url"`
 	Depth       int       `json:"depth"`
 	GeneratedAt time.Time `json:"generated_at"`
