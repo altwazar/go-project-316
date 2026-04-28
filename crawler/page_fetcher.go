@@ -12,9 +12,10 @@ import (
 
 // getPageWithRetries - получение страницы в несколько попыток
 func getPageWithRetries(ctx context.Context, url string, depth int, opts Options) Page {
+	normalizedURL, _ := normalizeURL(url)
 	state := &retryState{
 		ctx:     ctx,
-		url:     url,
+		url:     normalizedURL,
 		depth:   depth,
 		opts:    opts,
 		lastErr: nil,
@@ -26,7 +27,7 @@ func getPageWithRetries(ctx context.Context, url string, depth int, opts Options
 		}
 	}
 
-	return newPageResponse(0, url, depth, nil, SEOData{}, []Asset{}, state.getLastErrorMsg())
+	return newPageResponse(0, normalizedURL, depth, nil, SEOData{}, []Asset{}, state.getLastErrorMsg())
 }
 
 // retryState хранит состояние между попытками
@@ -43,9 +44,7 @@ func (s *retryState) tryAttempt(attempt int) *Page {
 	if s.isContextCancelled() {
 		return s.createCancelledPage()
 	}
-
 	finalURL, statusCode, links, seoData, assets, err := getPageWithLinks(s.ctx, s.url, s.opts.HTTPClient)
-
 	if s.isSuccessful(statusCode, err) {
 		return s.createSuccessPage(finalURL, statusCode, links, seoData, assets)
 	}
@@ -170,7 +169,7 @@ func (p *pageProcessor) fetchPage(ctx context.Context, urlStr string) error {
 	}
 
 	p.resp = resp
-	p.finalURL = resp.Request.URL.String()
+	p.finalURL, _ = normalizeURL(resp.Request.URL.String())
 	p.statusCode = resp.StatusCode
 
 	return nil

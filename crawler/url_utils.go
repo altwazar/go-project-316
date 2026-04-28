@@ -50,15 +50,15 @@ func isDefaultPort(scheme, port string) bool {
 
 // normalizePath - нормализация пути
 func normalizePath(u *url.URL) {
-	if u.Path == "" {
-		u.Path = "/"
-		return
-	}
+	// if u.Path == "" {
+	// 	u.Path = "/"
+	// 	return
+	// }
 
 	u.Path = strings.TrimRight(u.Path, "/")
-	if u.Path == "" {
-		u.Path = "/"
-	}
+	// if u.Path == "" {
+	// 	u.Path = "/"
+	// }
 }
 
 // normalizeQuery - нормализация параметров запроса

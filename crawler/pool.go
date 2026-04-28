@@ -53,7 +53,7 @@ func newPool(ctx context.Context, opts Options) (*pool, error) {
 }
 
 func (p *pool) start() {
-	p.addTask(newPageTask(p.opts.URL, 1))
+	p.addTask(newPageTask(p.opts.URL, 0))
 
 	for i := 0; i < p.opts.Concurrency; i++ {
 		p.workersWg.Add(1)

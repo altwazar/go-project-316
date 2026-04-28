@@ -562,7 +562,7 @@ func TestJSONResponseComparison(t *testing.T) {
 			// t.Logf("Request: %s", req.URL.Path)
 
 			switch req.URL.Path {
-			case "/":
+			case "":
 				mainPageRequested = true
 				return &http.Response{
 					StatusCode: http.StatusOK,
@@ -605,7 +605,7 @@ func TestJSONResponseComparison(t *testing.T) {
 
 	opts := Options{
 		URL:         "http://example.com",
-		Depth:       1,
+		Depth:       0,
 		Delay:       0,
 		Timeout:     5 * time.Second,
 		Retries:     1,
@@ -753,7 +753,7 @@ func TestConcurrentRequests(t *testing.T) {
 
 			var body string
 			switch req.URL.Path {
-			case "/":
+			case "":
 				body = html
 			case "/page1":
 				body = page1HTML
@@ -838,7 +838,7 @@ func TestRPSLimit(t *testing.T) {
 			}
 
 			body := linksHTML.String()
-			if req.URL.Path != "/" {
+			if req.URL.Path != "" {
 				// Для подстраниц возвращаем HTML без ссылок, чтобы не углубляться
 				body = `<!DOCTYPE html><html><body>Subpage</body></html>`
 			}
@@ -940,8 +940,8 @@ func TestDepthLimit(t *testing.T) {
 		setupMock     func() *http.Client
 	}{
 		{
-			name:          "depth 1 - only root page",
-			depth:         1,
+			name:          "depth 0 - only root page",
+			depth:         0,
 			expectedPages: 1,
 			setupMock: func() *http.Client {
 				html := `<!DOCTYPE html>
@@ -965,8 +965,8 @@ func TestDepthLimit(t *testing.T) {
 			},
 		},
 		{
-			name:          "depth 2 - root + linked pages",
-			depth:         2,
+			name:          "depth 1 - root + linked pages",
+			depth:         1,
 			expectedPages: 3, // root + page1 + page2
 			setupMock: func() *http.Client {
 				rootHTML := `<!DOCTYPE html>
@@ -989,7 +989,7 @@ func TestDepthLimit(t *testing.T) {
 					Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 						var body string
 						switch req.URL.Path {
-						case "/":
+						case "":
 							body = rootHTML
 						case "/page1", "/page2":
 							body = subpageHTML
@@ -1008,15 +1008,15 @@ func TestDepthLimit(t *testing.T) {
 			},
 		},
 		{
-			name:          "depth 3 - deep nesting",
-			depth:         3,
+			name:          "depth 2 - deep nesting",
+			depth:         2,
 			expectedPages: 3, // root -> page1 -> page2
 			setupMock: func() *http.Client {
 				return &http.Client{
 					Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 						var body string
 						switch req.URL.Path {
-						case "/":
+						case "":
 							body = `<!DOCTYPE html><html><body><a href="/level1">Level 1</a></body></html>`
 						case "/level1":
 							body = `<!DOCTYPE html><html><body><a href="/level2">Level 2</a></body></html>`
@@ -1119,7 +1119,7 @@ func TestExternalLinksNotCrawled(t *testing.T) {
 			if req.URL.Host == "example.com" {
 				var body string
 				switch req.URL.Path {
-				case "/":
+				case "":
 					body = rootHTML
 				case "/internal1", "/internal2", "/internal3":
 					body = internalPageHTML
@@ -1147,7 +1147,7 @@ func TestExternalLinksNotCrawled(t *testing.T) {
 
 	opts := Options{
 		URL:         "http://example.com",
-		Depth:       2,
+		Depth:       1,
 		Delay:       0,
 		Timeout:     5 * time.Second,
 		Retries:     1,
@@ -1220,7 +1220,7 @@ func TestDuplicateLinksDeduplication(t *testing.T) {
 
 			// Для всех внутренних страниц возвращаем простой HTML
 			body := `<!DOCTYPE html><html><body>Page content</body></html>`
-			if req.URL.Path == "/" {
+			if req.URL.Path == "" {
 				body = html
 			}
 
@@ -1283,7 +1283,7 @@ func TestDuplicateLinksDeduplication(t *testing.T) {
 
 	// Проверяем, что все ожидаемые страницы присутствуют
 	expectedURLs := []string{
-		"http://example.com/",
+		"http://example.com",
 		"http://example.com/page1",
 		"http://example.com/page2",
 		"http://example.com/page3",
@@ -1327,7 +1327,7 @@ func TestContextCancellationGracefulShutdown(t *testing.T) {
 			// t.Logf("Processing: %s", req.URL.Path)
 
 			switch req.URL.Path {
-			case "/":
+			case "":
 				time.Sleep(10 * time.Millisecond)
 				mu.Lock()
 				completedRequests[req.URL.Path] = true
@@ -1424,7 +1424,7 @@ func TestContextCancellationGracefulShutdown(t *testing.T) {
 	// Проверяем, что главная страница присутствует
 	foundRoot := false
 	for _, page := range response.Pages {
-		if page.URL == "http://example.com/" {
+		if page.URL == "http://example.com" {
 			foundRoot = true
 			break
 		}
