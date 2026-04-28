@@ -40,7 +40,9 @@ func doHeadRequest(ctx context.Context, urlStr string, client *http.Client) (int
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	return resp.StatusCode, nil
 }
@@ -56,7 +58,9 @@ func doGetRequest(ctx context.Context, urlStr string, client *http.Client) (int,
 	if err != nil {
 		return 0, fmt.Errorf("both HEAD and GET requests failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	return resp.StatusCode, nil
 }

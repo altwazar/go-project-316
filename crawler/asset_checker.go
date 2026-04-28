@@ -22,7 +22,9 @@ func checkAsset(ctx context.Context, urlStr string, assetType AssetType, client 
 		asset.Error = fmt.Sprintf("request failed: %v", err)
 		return asset, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	return processAssetResponse(asset, resp), nil
 }
