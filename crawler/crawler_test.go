@@ -812,8 +812,8 @@ func TestRPSLimit(t *testing.T) {
 	var linksHTML strings.Builder
 	linksHTML.WriteString(`<!DOCTYPE html><html><body>`)
 	for i := range 19 {
-		linksHTML.WriteString(fmt.Sprintf(`<a href="/page%d">Page %d</a>`, i, i))
-		linksHTML.WriteString(fmt.Sprintf(`<img src="/static/img%d.png">`, i))
+		fmt.Fprintf(&linksHTML, `<a href="/page%d">Page %d</a>`, i, i)
+		fmt.Fprintf(&linksHTML, `<img src="/static/img%d.png">`, i)
 	}
 	linksHTML.WriteString(`</body></html>`)
 
