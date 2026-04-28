@@ -54,7 +54,7 @@ type Page struct {
 	Depth        int          `json:"depth"`
 	HTTPStatus   int          `json:"http_status"`
 	Status       string       `json:"status"`
-	Error        string       `json:"error"`
+	Error        string       `json:"error,omitempty"`
 	BrokenLinks  []LinkStatus `json:"broken_links"`
 	Links        []string     `json:"-"`
 	Assets       []Asset      `json:"assets"`
@@ -76,5 +76,5 @@ type SEOData struct {
 	HasDescription bool   `json:"has_description"`
 	Description    string `json:"description"`
 	HasH1          bool   `json:"has_h1"`
-	H1             string `json:"h1"`
+	// H1             string `json:"h1"`
 }

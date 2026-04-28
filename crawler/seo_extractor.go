@@ -62,7 +62,7 @@ func extractMetaDescription(n *html.Node, seo *SEOData) {
 func extractH1(n *html.Node, seo *SEOData) {
 	if n.FirstChild != nil {
 		seo.HasH1 = true
-		seo.H1 = decodeHTMLEntities(strings.TrimSpace(n.FirstChild.Data))
+		// seo.H1 = decodeHTMLEntities(strings.TrimSpace(n.FirstChild.Data))
 	}
 }
 
