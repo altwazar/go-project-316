@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 )
@@ -107,6 +108,12 @@ func parseResult(p *pool) *Report {
 		p.processPageBrokenLinks(i)
 		p.processPageAssets(i)
 	}
+
+	// Сортируем страницы по URL для детерминированного порядка
+	sort.Slice(p.pages, func(i, j int) bool {
+		return p.pages[i].URL < p.pages[j].URL
+	})
+
 	return newAnalyzeResponse(p.opts.URL, p.opts.Depth, p.pages)
 }
 
@@ -133,6 +140,15 @@ func (p *pool) processPageAssets(pageIndex int) {
 	for assetIdx := range p.pages[pageIndex].Assets {
 		p.updateAssetWithStatus(pageIndex, assetIdx)
 	}
+
+	// Сортируем assets по типу и URL для детерминированного порядка
+	sort.Slice(p.pages[pageIndex].Assets, func(i, j int) bool {
+		if p.pages[pageIndex].Assets[i].Type != p.pages[pageIndex].Assets[j].Type {
+			// Сортируем по типу: image, script, style (алфавитно)
+			return p.pages[pageIndex].Assets[i].Type < p.pages[pageIndex].Assets[j].Type
+		}
+		return p.pages[pageIndex].Assets[i].URL < p.pages[pageIndex].Assets[j].URL
+	})
 }
 
 // updateAssetWithStatus - обновление ассета статусом
