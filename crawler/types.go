@@ -23,7 +23,7 @@ type Asset struct {
 	Type       AssetType `json:"type"`
 	StatusCode int       `json:"status_code"`
 	SizeBytes  int64     `json:"size_bytes"`
-	Error      string    `json:"error"`
+	Error      string    `json:"error,omitempty"`
 }
 
 // Options - настройки для краулера
