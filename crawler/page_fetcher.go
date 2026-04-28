@@ -256,11 +256,26 @@ func (p *pageProcessor) readHTMLBody() error {
 
 // newPageResponse - создание ответа страницы
 func newPageResponse(statusCode int, url string, depth int, links []string, seo SEOData, assets []Asset, errMsg string) Page {
+	status := getStatusString(statusCode)
+	if status == "ok" {
+		return Page{
+			URL:          url,
+			Depth:        depth,
+			HTTPStatus:   statusCode,
+			Status:       status,
+			BrokenLinks:  []LinkStatus{},
+			Assets:       assets,
+			Links:        links,
+			DiscoveredAt: time.Now().UTC().Truncate(time.Second),
+			Error:        errMsg,
+			SEO:          seo,
+		}
+	}
 	return Page{
 		URL:          url,
 		Depth:        depth,
 		HTTPStatus:   statusCode,
-		Status:       getStatusString(statusCode),
+		Status:       status,
 		BrokenLinks:  nil,
 		Assets:       assets,
 		Links:        links,
