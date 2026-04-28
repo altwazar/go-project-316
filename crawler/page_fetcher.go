@@ -27,7 +27,7 @@ func getPageWithRetries(ctx context.Context, url string, depth int, opts Options
 		}
 	}
 
-	return newPageResponse(0, normalizedURL, depth, nil, SEOData{}, []Asset{}, state.getLastErrorMsg())
+	return newPageResponse(0, normalizedURL, depth, nil, SEOData{}, nil, state.getLastErrorMsg())
 }
 
 // retryState хранит состояние между попытками
@@ -261,7 +261,7 @@ func newPageResponse(statusCode int, url string, depth int, links []string, seo 
 		Depth:        depth,
 		HTTPStatus:   statusCode,
 		Status:       getStatusString(statusCode),
-		BrokenLinks:  []LinkStatus{},
+		BrokenLinks:  nil,
 		Assets:       assets,
 		Links:        links,
 		DiscoveredAt: time.Now().UTC().Truncate(time.Second),
