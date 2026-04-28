@@ -168,7 +168,7 @@ func (p *pageProcessor) fetchPage(ctx context.Context, urlStr string) error {
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request execution failed: %w", err)
+		return err
 	}
 
 	p.resp = resp
