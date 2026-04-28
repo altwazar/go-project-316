@@ -940,8 +940,8 @@ func TestDepthLimit(t *testing.T) {
 		setupMock     func() *http.Client
 	}{
 		{
-			name:          "depth 0 - only root page",
-			depth:         0,
+			name:          "depth 1 - only root page",
+			depth:         1,
 			expectedPages: 1,
 			setupMock: func() *http.Client {
 				html := `<!DOCTYPE html>
@@ -965,8 +965,8 @@ func TestDepthLimit(t *testing.T) {
 			},
 		},
 		{
-			name:          "depth 1 - root + linked pages",
-			depth:         1,
+			name:          "depth 2 - root + linked pages",
+			depth:         2,
 			expectedPages: 3, // root + page1 + page2
 			setupMock: func() *http.Client {
 				rootHTML := `<!DOCTYPE html>
@@ -1008,8 +1008,8 @@ func TestDepthLimit(t *testing.T) {
 			},
 		},
 		{
-			name:          "depth 2 - deep nesting",
-			depth:         2,
+			name:          "depth 3 - deep nesting",
+			depth:         3,
 			expectedPages: 3, // root -> page1 -> page2
 			setupMock: func() *http.Client {
 				return &http.Client{
@@ -1147,7 +1147,7 @@ func TestExternalLinksNotCrawled(t *testing.T) {
 
 	opts := Options{
 		URL:         "http://example.com",
-		Depth:       1,
+		Depth:       2,
 		Delay:       0,
 		Timeout:     5 * time.Second,
 		Retries:     1,
