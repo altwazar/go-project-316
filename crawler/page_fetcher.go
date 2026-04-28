@@ -133,6 +133,9 @@ func getPageWithLinks(ctx context.Context, urlStr string, httpClient *http.Clien
 	defer page.closeResponse()
 
 	if !page.isHTML() {
+		if page.isXML() {
+			return page.processXML()
+		}
 		return page.finalURL, page.statusCode, nil, SEOData{}, []Asset{}, nil
 	}
 
@@ -175,6 +178,34 @@ func (p *pageProcessor) fetchPage(ctx context.Context, urlStr string) error {
 	return nil
 }
 
+func (p *pageProcessor) isXML() bool {
+	contentType := p.resp.Header.Get("Content-Type")
+	return strings.Contains(contentType, "application/xml") ||
+		strings.Contains(contentType, "text/xml") ||
+		strings.Contains(contentType, "application/rss+xml")
+}
+
+func (p *pageProcessor) processXML() (string, int, []string, SEOData, []Asset, error) {
+	if err := p.readXMLBody(); err != nil {
+		return p.finalURL, p.statusCode, nil, SEOData{}, []Asset{}, err
+	}
+
+	// Парсим RSS/XML для извлечения title
+	seo := extractSEOFromXML(p.htmlBody)
+
+	return p.finalURL, p.statusCode, nil, seo, []Asset{}, nil
+}
+
+func (p *pageProcessor) readXMLBody() error {
+	limitedReader := io.LimitReader(p.resp.Body, MaxHTMLBodySize)
+	bodyBytes, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return fmt.Errorf("failed to read body: %w", err)
+	}
+	p.htmlBody = string(bodyBytes)
+	return nil
+}
+
 // closeResponse - закрытие тела ответа
 func (p *pageProcessor) closeResponse() {
 	if p.resp != nil {
@@ -185,11 +216,7 @@ func (p *pageProcessor) closeResponse() {
 // isHTML - проверка HTML контента
 func (p *pageProcessor) isHTML() bool {
 	contentType := p.resp.Header.Get("Content-Type")
-	// return strings.Contains(contentType, "text/html")
-	return strings.Contains(contentType, "text/html") ||
-		strings.Contains(contentType, "application/xml") ||
-		strings.Contains(contentType, "text/xml") ||
-		strings.Contains(contentType, "application/rss+xml")
+	return strings.Contains(contentType, "text/html")
 }
 
 // processHTML - обработка HTML контента

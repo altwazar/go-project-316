@@ -7,6 +7,29 @@ import (
 	"strings"
 )
 
+// extractSEOFromXML - получение SEO из XML
+func extractSEOFromXML(xmlContent string) SEOData {
+	seo := SEOData{}
+
+	// Ищем channel -> title
+	channelIdx := strings.Index(xmlContent, "<channel>")
+	if channelIdx != -1 {
+		// Ищем title внутри channel
+		titleStart := strings.Index(xmlContent[channelIdx:], "<title>")
+		if titleStart != -1 {
+			titleStart += channelIdx + 7
+			titleEnd := strings.Index(xmlContent[titleStart:], "</title>")
+			if titleEnd != -1 {
+				title := xmlContent[titleStart : titleStart+titleEnd]
+				seo.HasTitle = true
+				seo.Title = decodeHTMLEntities(strings.TrimSpace(title))
+			}
+		}
+	}
+
+	return seo
+}
+
 // extractLinksAndAssets - получение ссылок из ассетов
 func extractLinksAndAssets(htmlContent string, baseURL *url.URL) ([]string, []Asset, error) {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
