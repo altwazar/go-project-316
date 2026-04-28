@@ -102,7 +102,7 @@ func worker(p *pool) {
 	}
 }
 
-// parseResult - формирование отчёта (сложность 3)
+// parseResult - формирование отчёта
 func parseResult(p *pool) *Report {
 	for i := range p.pages {
 		p.processPageBrokenLinks(i)

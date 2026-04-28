@@ -131,7 +131,7 @@ func (t *task) scheduleChildTasks(p *pool, pg *Page) {
 
 // scheduleLinkTasks - создание задач для ссылок
 func (t *task) scheduleLinkTasks(p *pool, pg *Page) {
-	shouldCrawlDeeper := p.opts.Depth > t.depth+1
+	shouldCrawlDeeper := p.opts.Depth >= t.depth
 
 	for _, ln := range pg.Links {
 		if shouldCrawlDeeper && isSameDomain(p.opts.URL, ln) {
