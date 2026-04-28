@@ -185,7 +185,11 @@ func (p *pageProcessor) closeResponse() {
 // isHTML - проверка HTML контента
 func (p *pageProcessor) isHTML() bool {
 	contentType := p.resp.Header.Get("Content-Type")
-	return strings.Contains(contentType, "text/html")
+	// return strings.Contains(contentType, "text/html")
+	return strings.Contains(contentType, "text/html") ||
+		strings.Contains(contentType, "application/xml") ||
+		strings.Contains(contentType, "text/xml") ||
+		strings.Contains(contentType, "application/rss+xml")
 }
 
 // processHTML - обработка HTML контента
