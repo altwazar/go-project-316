@@ -44,7 +44,7 @@ func (s *retryState) tryAttempt(attempt int) *Page {
 	if s.isContextCancelled() {
 		return s.createCancelledPage()
 	}
-	finalURL, statusCode, links, seoData, assets, err := getPageWithLinks(s.ctx, s.url, s.opts.HTTPClient)
+	finalURL, statusCode, links, seoData, assets, err := getPageWithLinks(s.ctx, s.url, s.opts.HTTPClient, s.opts.UserAgent)
 	if s.isSuccessful(statusCode, err) {
 		return s.createSuccessPage(finalURL, statusCode, links, seoData, assets)
 	}
@@ -121,13 +121,13 @@ func (s *retryState) getLastErrorMsg() string {
 }
 
 // getPageWithLinks - получение страницы
-func getPageWithLinks(ctx context.Context, urlStr string, httpClient *http.Client) (string, int, []string, SEOData, []Asset, error) {
+func getPageWithLinks(ctx context.Context, urlStr string, httpClient *http.Client, userAgent string) (string, int, []string, SEOData, []Asset, error) {
 	page := &pageProcessor{
 		originalURL: urlStr,
 		httpClient:  httpClient,
 	}
 
-	if err := page.fetchPage(ctx, urlStr); err != nil {
+	if err := page.fetchPage(ctx, urlStr, userAgent); err != nil {
 		return urlStr, 0, nil, SEOData{}, []Asset{}, err
 	}
 	defer page.closeResponse()
@@ -160,8 +160,8 @@ type pageProcessor struct {
 }
 
 // fetchPage - загрузка страницы
-func (p *pageProcessor) fetchPage(ctx context.Context, urlStr string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
+func (p *pageProcessor) fetchPage(ctx context.Context, urlStr string, userAgent string) error {
+	req, err := newRequestWithUserAgent(ctx, http.MethodGet, urlStr, userAgent)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

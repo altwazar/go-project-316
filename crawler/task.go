@@ -73,7 +73,7 @@ func (t *task) executeCheckAsset(p *pool, u string, err error) {
 	if err != nil {
 		asset.Error = err.Error()
 	} else {
-		checkedAsset, err := checkAsset(p.ctx, u, *t.assetType, p.opts.HTTPClient)
+		checkedAsset, err := checkAsset(p.ctx, u, *t.assetType, p.opts.HTTPClient, p.opts.UserAgent)
 		if err != nil {
 			asset.Error = err.Error()
 		} else {
@@ -164,7 +164,7 @@ func (t *task) executeCheckLink(p *pool, u string, err error) {
 	if err != nil {
 		ln = LinkStatus{URL: t.url, Error: err.Error()}
 	} else {
-		s, err := checkLinkStatus(p.ctx, u, p.opts.HTTPClient)
+		s, err := checkLinkStatus(p.ctx, u, p.opts.HTTPClient, p.opts.UserAgent)
 		if err == nil {
 			ln = LinkStatus{URL: t.url, StatusCode: s}
 		} else {

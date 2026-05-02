@@ -1576,3 +1576,176 @@ func TestContextCancellationPartialResults(t *testing.T) {
 	// 	t.Logf("  - %s (%s)", page.URL, page.Status)
 	// }
 }
+
+// TestCustomUserAgent - тест проверки кастомного User-Agent
+func TestCustomUserAgent(t *testing.T) {
+	t.Run("custom user agent in page requests", func(t *testing.T) {
+		var receivedUA string
+
+		html := `<!DOCTYPE html>
+		<html>
+		<head><title>Test</title></head>
+		<body>
+			<a href="/page1">Link</a>
+			<img src="/logo.png">
+		</body>
+		</html>`
+
+		subpageHTML := `<!DOCTYPE html><html><body>Subpage</body></html>`
+
+		client := &http.Client{
+			Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				// Сохраняем User-Agent из первого запроса к странице
+				if receivedUA == "" {
+					receivedUA = req.Header.Get("User-Agent")
+				} else {
+					// Проверяем, что во всех запросах один и тот же UA
+					if ua := req.Header.Get("User-Agent"); ua != receivedUA {
+						t.Errorf("Inconsistent User-Agent: expected '%s', got '%s'", receivedUA, ua)
+					}
+				}
+
+				var body string
+				switch req.URL.Path {
+				case "":
+					body = html
+				case "/page1":
+					body = subpageHTML
+				case "/logo.png":
+					return &http.Response{
+						StatusCode:    http.StatusOK,
+						Body:          io.NopCloser(bytes.NewReader([]byte("fake image"))),
+						Header:        http.Header{"Content-Type": []string{"image/png"}},
+						ContentLength: 10,
+						Request:       req,
+					}, nil
+				default:
+					body = subpageHTML
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(body)),
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Request:    req,
+				}, nil
+			}),
+		}
+
+		customUA := "MyBot/1.0"
+
+		opts := Options{
+			URL:         "http://example.com",
+			Depth:       2,
+			Delay:       0,
+			Timeout:     5 * time.Second,
+			Retries:     1,
+			Concurrency: 1,
+			UserAgent:   customUA,
+			HTTPClient:  client,
+		}
+
+		ctx := context.Background()
+		_, err := Analyze(ctx, opts)
+		if err != nil {
+			t.Fatalf("Analyze failed: %v", err)
+		}
+
+		if receivedUA != customUA {
+			t.Errorf("Expected User-Agent '%s', got '%s'", customUA, receivedUA)
+		}
+	})
+
+	t.Run("no user agent specified", func(t *testing.T) {
+		var receivedUA string
+
+		client := &http.Client{
+			Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				receivedUA = req.Header.Get("User-Agent")
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader("<html></html>")),
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Request:    req,
+				}, nil
+			}),
+		}
+
+		opts := Options{
+			URL:         "http://example.com",
+			Depth:       1,
+			Concurrency: 1,
+			UserAgent:   "", // Пустой User-Agent
+			HTTPClient:  client,
+		}
+
+		ctx := context.Background()
+		_, err := Analyze(ctx, opts)
+		if err != nil {
+			t.Fatalf("Analyze failed: %v", err)
+		}
+
+		if receivedUA != "" {
+			t.Errorf("Expected no User-Agent header, got '%s'", receivedUA)
+		}
+	})
+
+	t.Run("user agent in HEAD requests", func(t *testing.T) {
+		var headRequestCount int
+		var receivedUA string
+
+		html := `<!DOCTYPE html>
+		<html>
+		<body>
+			<a href="https://external-example.com">External Link</a>
+		</body>
+		</html>`
+
+		client := &http.Client{
+			Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				// Для внешних ссылок должен быть HEAD запрос
+				if req.Method == http.MethodHead {
+					headRequestCount++
+					receivedUA = req.Header.Get("User-Agent")
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Request:    req,
+					}, nil
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(html)),
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Request:    req,
+				}, nil
+			}),
+		}
+
+		customUA := "HeadChecker/1.0"
+
+		opts := Options{
+			URL:         "http://example.com",
+			Depth:       1,
+			Delay:       0,
+			Timeout:     5 * time.Second,
+			Retries:     1,
+			Concurrency: 1,
+			UserAgent:   customUA,
+			HTTPClient:  client,
+		}
+
+		ctx := context.Background()
+		_, err := Analyze(ctx, opts)
+		if err != nil {
+			t.Fatalf("Analyze failed: %v", err)
+		}
+
+		if headRequestCount == 0 {
+			t.Error("Expected at least one HEAD request for external link")
+		}
+		if receivedUA != customUA {
+			t.Errorf("Expected User-Agent '%s' in HEAD request, got '%s'", customUA, receivedUA)
+		}
+	})
+}

@@ -8,7 +8,7 @@ import (
 )
 
 // checkAsset - проверка ассета и получение его размера
-func checkAsset(ctx context.Context, urlStr string, assetType AssetType, client *http.Client) (Asset, error) {
+func checkAsset(ctx context.Context, urlStr string, assetType AssetType, client *http.Client, userAgent string) (Asset, error) {
 	asset := createBaseAsset(urlStr, assetType)
 
 	validatedURL, err := validateAndNormalizeURL(urlStr)
@@ -17,7 +17,7 @@ func checkAsset(ctx context.Context, urlStr string, assetType AssetType, client 
 		return asset, err
 	}
 
-	resp, err := executeAssetRequest(ctx, validatedURL, client)
+	resp, err := executeAssetRequest(ctx, validatedURL, client, userAgent)
 	if err != nil {
 		asset.Error = fmt.Sprintf("request failed: %v", err)
 		return asset, err
