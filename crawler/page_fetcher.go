@@ -52,7 +52,7 @@ func (s *retryState) tryAttempt(attempt int) *Page {
 	s.updateLastError(statusCode, err)
 
 	if s.shouldRetry(attempt) {
-		s.waitBeforeRetry()
+		s.waitBeforeRetry(attempt)
 	}
 
 	return nil
@@ -99,16 +99,17 @@ func (s *retryState) shouldRetry(attempt int) bool {
 	return attempt < s.opts.Retries
 }
 
-// waitBeforeRetry - ожидание перед повтором
-func (s *retryState) waitBeforeRetry() {
-	if s.opts.Delay <= 0 {
+// waitBeforeRetry - ожидание перед повтором с учетом RPS, Delay и backoff
+func (s *retryState) waitBeforeRetry(attempt int) {
+	waitTime := s.calculateBackoff(attempt)
+	if waitTime <= 0 {
 		return
 	}
 
 	select {
 	case <-s.ctx.Done():
 		return
-	case <-time.After(s.opts.Delay):
+	case <-time.After(waitTime):
 	}
 }
 
@@ -293,4 +294,28 @@ func getStatusString(statusCode int) string {
 	default:
 		return StatusError
 	}
+}
+
+// getBaseWaitTime - получение базового времени ожидания из настроек
+func (s *retryState) getBaseWaitTime() time.Duration {
+	switch {
+	case s.opts.RPS > 0:
+		// Для RPS задержка = 1 секунда / RPS
+		return time.Duration(float64(time.Second) / float64(s.opts.RPS))
+	case s.opts.Delay > 0:
+		return s.opts.Delay
+	default:
+		return 0
+	}
+}
+
+// calculateBackoff - вычисление времени ожидания с учетом backoff
+func (s *retryState) calculateBackoff(attempt int) time.Duration {
+	baseWait := s.getBaseWaitTime()
+	if baseWait <= 0 {
+		// Если нет базовой задержки, используем минимальную
+		baseWait = 100 * time.Millisecond
+	}
+
+	return baseWait * time.Duration(attempt)
 }
