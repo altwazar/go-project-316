@@ -10,9 +10,12 @@ import (
 type AssetType string
 
 const (
-	AssetTypeImage  AssetType = "image"
+	// AssetTypeImage - тип картинка
+	AssetTypeImage AssetType = "image"
+	// AssetTypeScript - тип скрипт
 	AssetTypeScript AssetType = "script"
-	AssetTypeStyle  AssetType = "style"
+	// AssetTypeStyle - тип стиль
+	AssetTypeStyle AssetType = "style"
 )
 
 // Asset - информация об ассете
