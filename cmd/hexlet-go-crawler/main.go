@@ -3,7 +3,6 @@ package main
 
 import (
 	"code/crawler"
-	"code/internal/models"
 	"context"
 	"fmt"
 	"github.com/urfave/cli/v3"
@@ -64,7 +63,7 @@ func main() {
 	}
 }
 
-func createOptions(cmd *cli.Command) models.Options {
+func createOptions(cmd *cli.Command) crawler.Options {
 	delay := cmd.Duration("delay")
 	rps := cmd.Int("rps")
 
@@ -72,7 +71,7 @@ func createOptions(cmd *cli.Command) models.Options {
 		delay = 0
 	}
 
-	return models.Options{
+	return crawler.Options{
 		URL:         cmd.Args().Get(0),
 		Depth:       cmd.Int("depth"),
 		Delay:       delay,
