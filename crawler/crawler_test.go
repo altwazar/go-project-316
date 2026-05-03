@@ -2382,3 +2382,555 @@ func TestHeadNetworkErrorThenGetSuccess(t *testing.T) {
 		t.Error("GET request was not called as fallback after network error")
 	}
 }
+
+// TestAssetHeadMethodNotAllowed - тест обработки HEAD с 405 Method Not Allowed для ассета
+func TestAssetHeadMethodNotAllowed(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<img src="/static/logo.png">
+		<script src="/static/script.js"></script>
+		<link rel="stylesheet" href="/static/style.css">
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Ассеты
+			if strings.Contains(req.URL.Path, ".png") ||
+				strings.Contains(req.URL.Path, ".js") ||
+				strings.Contains(req.URL.Path, ".css") {
+
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode: http.StatusMethodNotAllowed,
+						Status:     "Method Not Allowed",
+						Request:    req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode:    http.StatusOK,
+						Status:        "OK",
+						Body:          io.NopCloser(bytes.NewReader([]byte("fake asset content"))),
+						Header:        http.Header{"Content-Type": []string{"image/png"}},
+						ContentLength: 1024,
+						Request:       req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	result, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван
+	if !headCalled {
+		t.Error("HEAD request for asset was not called")
+	}
+
+	// Проверяем, что GET был вызван как fallback
+	if !getCalled {
+		t.Error("GET request was not called as fallback for 405")
+	}
+
+	// Проверяем, что ассеты присутствуют в ответе с правильным статусом
+	if len(response.Pages) == 0 {
+		t.Fatal("Expected at least one page")
+	}
+
+	page := response.Pages[0]
+	if len(page.Assets) == 0 {
+		t.Error("Expected to find assets in the page")
+	} else {
+		for _, asset := range page.Assets {
+			if asset.StatusCode != http.StatusOK {
+				t.Errorf("Expected asset status 200, got %d for %s", asset.StatusCode, asset.URL)
+			}
+			if asset.Error != "" {
+				t.Errorf("Expected no error for asset %s, got '%s'", asset.URL, asset.Error)
+			}
+			if asset.SizeBytes == 0 {
+				t.Errorf("Expected non-zero size for asset %s", asset.URL)
+			}
+		}
+	}
+}
+
+// TestAssetHeadNotImplemented - тест обработки HEAD с 501 Not Implemented для ассета
+func TestAssetHeadNotImplemented(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<img src="/static/logo.png">
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Ассет
+			if strings.Contains(req.URL.Path, ".png") {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode: http.StatusNotImplemented,
+						Status:     "Not Implemented",
+						Request:    req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode:    http.StatusOK,
+						Status:        "OK",
+						Body:          io.NopCloser(bytes.NewReader([]byte("fake image"))),
+						Header:        http.Header{"Content-Type": []string{"image/png"}},
+						ContentLength: 2048,
+						Request:       req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	_, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван
+	if !headCalled {
+		t.Error("HEAD request for asset was not called")
+	}
+
+	// Проверяем, что GET был вызван как fallback
+	if !getCalled {
+		t.Error("GET request was not called as fallback for 501")
+	}
+}
+
+// TestAssetHeadSuccessWithoutFallback - тест: HEAD успешен для ассета, GET не вызывается
+func TestAssetHeadSuccessWithoutFallback(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<img src="/static/logo.png">
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Ассет
+			if strings.Contains(req.URL.Path, ".png") {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode:    http.StatusOK,
+						Status:        "OK",
+						ContentLength: 4096,
+						Request:       req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return nil, fmt.Errorf("GET should not be called for HEAD-successful asset")
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	result, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван
+	if !headCalled {
+		t.Error("HEAD request was not called for asset")
+	}
+
+	// Проверяем, что GET НЕ вызывался
+	if getCalled {
+		t.Error("GET was called unexpectedly (should use HEAD result)")
+	}
+
+	// Проверяем, что размер ассета получен из HEAD
+	if len(response.Pages) > 0 && len(response.Pages[0].Assets) > 0 {
+		asset := response.Pages[0].Assets[0]
+		if asset.SizeBytes != 4096 {
+			t.Errorf("Expected size 4096 from HEAD, got %d", asset.SizeBytes)
+		}
+		if asset.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", asset.StatusCode)
+		}
+	}
+}
+
+// TestAssetHeadNetworkErrorThenGetSuccess - тест: сетевая ошибка HEAD, GET успешен для ассета
+func TestAssetHeadNetworkErrorThenGetSuccess(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<img src="/static/logo.png">
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Ассет
+			if strings.Contains(req.URL.Path, ".png") {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					// Сетевая ошибка (не статус, а транспортная ошибка)
+					return nil, fmt.Errorf("connection timeout")
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode:    http.StatusOK,
+						Status:        "OK",
+						Body:          io.NopCloser(bytes.NewReader([]byte("fake image"))),
+						Header:        http.Header{"Content-Type": []string{"image/png"}},
+						ContentLength: 5120,
+						Request:       req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	result, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван и упал
+	if !headCalled {
+		t.Error("HEAD request was not called for asset")
+	}
+
+	// Проверяем, что GET был вызван как fallback
+	if !getCalled {
+		t.Error("GET request was not called as fallback after network error")
+	}
+
+	// Проверяем, что ассет успешно получен через GET
+	if len(response.Pages) > 0 && len(response.Pages[0].Assets) > 0 {
+		asset := response.Pages[0].Assets[0]
+		if asset.StatusCode != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", asset.StatusCode)
+		}
+		if asset.SizeBytes != 5120 {
+			t.Errorf("Expected size 5120, got %d", asset.SizeBytes)
+		}
+		if asset.Error != "" {
+			t.Errorf("Expected no error, got '%s'", asset.Error)
+		}
+	}
+}
+
+// TestAssetHead405ThenGet404 - тест: HEAD 405, GET возвращает 404
+func TestAssetHead405ThenGet404(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<img src="/static/missing.png">
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Ассет
+			if strings.Contains(req.URL.Path, ".png") {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode: http.StatusMethodNotAllowed,
+						Status:     "Method Not Allowed",
+						Request:    req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Status:     "Not Found",
+						Request:    req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	result, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что оба метода были вызваны
+	if !headCalled {
+		t.Error("HEAD request was not called")
+	}
+	if !getCalled {
+		t.Error("GET request was not called as fallback")
+	}
+
+	// Проверяем, что ассет отмечен как ошибочный с кодом 404
+	if len(response.Pages) > 0 && len(response.Pages[0].Assets) > 0 {
+		asset := response.Pages[0].Assets[0]
+		if asset.StatusCode != http.StatusNotFound {
+			t.Errorf("Expected status 404, got %d", asset.StatusCode)
+		}
+		if asset.Error == "" {
+			t.Error("Expected error message for 404")
+		}
+	}
+}
+
+// TestAssetDeduplicationWithHead - тест дедупликации ассетов с использованием HEAD
+func TestAssetDeduplicationWithHead(t *testing.T) {
+	headRequests := 0
+	getRequests := 0
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<img src="/static/logo.png">
+		<img src="/static/logo.png">
+		<img src="/static/logo.png">
+		<script src="/static/logo.png"> <!-- тот же URL, другой тип -->
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Ассет
+			if strings.Contains(req.URL.Path, "logo.png") {
+				if req.Method == http.MethodHead {
+					headRequests++
+					return &http.Response{
+						StatusCode:    http.StatusOK,
+						Status:        "OK",
+						ContentLength: 12345,
+						Request:       req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getRequests++
+					return &http.Response{
+						StatusCode:    http.StatusOK,
+						Status:        "OK",
+						Body:          io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("a"), 12345))),
+						Header:        http.Header{"Content-Type": []string{"image/png"}},
+						ContentLength: 12345,
+						Request:       req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 4,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	result, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что HEAD запрос был сделан (и, возможно, GET не понадобился)
+	// Из-за дедупликации должен быть только один HEAD запрос
+	if headRequests != 1 {
+		t.Errorf("Expected 1 HEAD request for asset, got %d", headRequests)
+	}
+
+	// GET не должен вызываться, так как HEAD успешен
+	if getRequests != 0 {
+		t.Errorf("Expected 0 GET requests (HEAD was successful), got %d", getRequests)
+	}
+
+	// Проверяем, что ассет присутствует в ответе один раз (несмотря на множественные ссылки)
+	if len(response.Pages) > 0 {
+		// Должен быть только один уникальный ассет
+		uniqueAssets := make(map[string]bool)
+		for _, asset := range response.Pages[0].Assets {
+			uniqueAssets[asset.URL] = true
+		}
+		if len(uniqueAssets) != 1 {
+			t.Errorf("Expected 1 unique asset, got %d", len(uniqueAssets))
+		}
+
+		// Проверяем размер
+		if response.Pages[0].Assets[0].SizeBytes != 12345 {
+			t.Errorf("Expected size 12345 from HEAD, got %d", response.Pages[0].Assets[0].SizeBytes)
+		}
+	}
+}
