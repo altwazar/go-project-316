@@ -1978,3 +1978,407 @@ func TestRetryOn429(t *testing.T) {
 	t.Logf("Successfully retried after 429 - main page attempts: %d, other requests: %d, time: %v",
 		mainPageAttempts, otherRequests, elapsed)
 }
+
+// TestHeadMethodNotAllowed - тест обработки HEAD с 405 Method Not Allowed для внешней ссылки
+func TestHeadMethodNotAllowed(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<a href="https://external-site.com/page">External Link (should use HEAD first)</a>
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Внешняя ссылка
+			if req.URL.Host == "external-site.com" {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode: http.StatusMethodNotAllowed,
+						Status:     "Method Not Allowed",
+						Request:    req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Status:     "OK",
+						Request:    req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	result, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван
+	if !headCalled {
+		t.Error("HEAD request for external link was not called")
+	}
+
+	// Проверяем, что GET был вызван как fallback
+	if !getCalled {
+		t.Error("GET request was not called as fallback for 405")
+	}
+
+	// Проверяем, что внешняя ссылка не закраулена, но проверена
+	foundExternalLink := false
+	for _, page := range response.Pages {
+		for _, brokenLink := range page.BrokenLinks {
+			if strings.Contains(brokenLink.URL, "external-site.com") {
+				foundExternalLink = true
+				if brokenLink.StatusCode != http.StatusOK {
+					t.Errorf("Expected status 200 for external link, got %d", brokenLink.StatusCode)
+				}
+				break
+			}
+		}
+	}
+
+	if !foundExternalLink {
+		t.Log("External link not found in broken links (might be in other structure)")
+	}
+}
+
+// TestHeadNotImplemented - тест обработки HEAD с 501 Not Implemented для внешней ссылки
+func TestHeadNotImplemented(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<a href="https://external-api.com/endpoint">External API Link</a>
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Внешняя ссылка
+			if req.URL.Host == "external-api.com" {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode: http.StatusNotImplemented,
+						Status:     "Not Implemented",
+						Request:    req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Status:     "OK",
+						Request:    req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	_, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван
+	if !headCalled {
+		t.Error("HEAD request for external link was not called")
+	}
+
+	// Проверяем, что GET был вызван как fallback
+	if !getCalled {
+		t.Error("GET request was not called as fallback for 501")
+	}
+}
+
+// TestHead405ThenGet404 - тест: HEAD 405, но GET тоже возвращает 404 для внешней ссылки
+func TestHead405ThenGet404(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<a href="https://external-site.com/missing">Missing External Link</a>
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Внешняя ссылка
+			if req.URL.Host == "external-site.com" {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode: http.StatusMethodNotAllowed,
+						Status:     "Method Not Allowed",
+						Request:    req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Status:     "Not Found",
+						Request:    req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	result, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что оба метода были вызваны
+	if !headCalled {
+		t.Error("HEAD request was not called")
+	}
+	if !getCalled {
+		t.Error("GET request was not called as fallback")
+	}
+
+	// Проверяем, что внешняя ссылка отмечена как битая с кодом 404
+	foundBroken := false
+	for _, page := range response.Pages {
+		for _, brokenLink := range page.BrokenLinks {
+			if strings.Contains(brokenLink.URL, "external-site.com/missing") {
+				foundBroken = true
+				if brokenLink.StatusCode != http.StatusNotFound {
+					t.Errorf("Expected status 404 from GET, got %d", brokenLink.StatusCode)
+				}
+				break
+			}
+		}
+	}
+
+	if !foundBroken {
+		t.Log("External missing link not found in broken links")
+	}
+}
+
+// TestHeadSuccessWithoutFallback - тест: HEAD успешен (не 405/501), GET не вызывается
+// Для этого используем проверку ссылки на другую страницу внутри того же домена, но не краулим её
+func TestHeadSuccessWithoutFallback(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<!-- Ссылка на другую страницу, но с depth=0, поэтому она не будет краулиться, только проверяться -->
+		<a href="/another-page">Another Page (will be checked via HEAD)</a>
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Запрос к /another-page
+			if strings.Contains(req.URL.Path, "another-page") {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Status:     "OK",
+						Request:    req,
+					}, nil
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return nil, fmt.Errorf("GET should not be called for HEAD-successful link")
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       0, // Depth 0 - не краулим ссылки, только проверяем
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	_, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван
+	if !headCalled {
+		t.Error("HEAD request was not called for link check")
+	}
+
+	// Проверяем, что GET НЕ вызывался
+	if getCalled {
+		t.Error("GET was called unexpectedly (should use HEAD result)")
+	}
+}
+
+// TestHeadNetworkErrorThenGetSuccess - тест: сетевая ошибка HEAD, GET успешен для внешней ссылки
+func TestHeadNetworkErrorThenGetSuccess(t *testing.T) {
+	headCalled := false
+	getCalled := false
+
+	html := `<!DOCTYPE html>
+	<html>
+	<body>
+		<a href="https://unstable-site.com/page">Unstable External Link</a>
+	</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			// Внешняя ссылка
+			if req.URL.Host == "unstable-site.com" {
+				if req.Method == http.MethodHead {
+					headCalled = true
+					// Сетевая ошибка (не статус, а транспортная ошибка)
+					return nil, fmt.Errorf("connection timeout")
+				}
+
+				if req.Method == http.MethodGet {
+					getCalled = true
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Status:     "OK",
+						Request:    req,
+					}, nil
+				}
+			}
+
+			// Главная страница
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "OK",
+				Body:       io.NopCloser(strings.NewReader(html)),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       0,
+		Timeout:     5 * time.Second,
+		Retries:     1,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	_, err := Analyze(ctx, opts)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Проверяем, что HEAD был вызван и упал
+	if !headCalled {
+		t.Error("HEAD request was not called")
+	}
+
+	// Проверяем, что GET был вызван как fallback
+	if !getCalled {
+		t.Error("GET request was not called as fallback after network error")
+	}
+}

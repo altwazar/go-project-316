@@ -19,11 +19,18 @@ func checkLinkStatus(ctx context.Context, urlStr string, client *http.Client, us
 // attemptRequest - попытка выполнения запроса с fallback на GET
 func attemptRequest(ctx context.Context, urlStr string, client *http.Client, userAgent string) (int, error) {
 	// Пробуем HEAD запрос
-	if statusCode, err := doHeadRequest(ctx, urlStr, client, userAgent); err == nil {
+	statusCode, err := doHeadRequest(ctx, urlStr, client, userAgent)
+	if err == nil {
+		// HEAD вернул ответ, но если метод не поддерживается сервером,
+		// пробуем GET запрос (он может работать)
+		if statusCode == http.StatusMethodNotAllowed || statusCode == http.StatusNotImplemented {
+			return doGetRequest(ctx, urlStr, client, userAgent)
+		}
 		return statusCode, nil
 	}
 
-	// Fallback на GET
+	// Если HEAD вернул транспортную ошибку (таймаут, отказ соединения и т.д.),
+	// тоже пробуем GET - возможно, проблема только с HEAD
 	return doGetRequest(ctx, urlStr, client, userAgent)
 }
 
