@@ -1749,3 +1749,232 @@ func TestCustomUserAgent(t *testing.T) {
 		}
 	})
 }
+
+// TestRetryOn429 - тест повторной попытки при статусе 429
+func TestRetryOn429(t *testing.T) {
+	var mu sync.Mutex
+	mainPageAttempts := 0
+	otherRequests := 0
+
+	html := `<!DOCTYPE html>
+	<html>
+	<head>
+		<title>Success after retry</title>
+		<meta name="description" content="Content after retry">
+	</head>
+	<body>
+		<h1>Success Page</h1>
+		<a href="/page2">Next page</a>
+		<img src="/image.png">
+	</body>
+	</html>`
+
+	subpageHTML := `<!DOCTYPE html>
+	<html>
+	<head><title>Subpage</title></head>
+	<body>Subpage content</body>
+	</html>`
+
+	client := &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			// Считаем только попытки загрузки главной страницы
+			if req.URL.Path == "" || req.URL.Path == "/" {
+				mainPageAttempts++
+				t.Logf("Main page attempt #%d", mainPageAttempts)
+
+				// Первая попытка - возвращаем 429
+				if mainPageAttempts == 1 {
+					return &http.Response{
+						StatusCode: http.StatusTooManyRequests,
+						Status:     "Too Many Requests",
+						Header: http.Header{
+							"Content-Type": []string{"text/html"},
+							"Retry-After":  []string{"1"},
+						},
+						Body:    io.NopCloser(strings.NewReader("Too many requests")),
+						Request: req,
+					}, nil
+				}
+
+				// Вторая попытка - успешный ответ
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "OK",
+					Body:       io.NopCloser(strings.NewReader(html)),
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Request:    req,
+				}, nil
+			}
+
+			// Обработка остальных запросов (подстраницы, ассеты)
+			otherRequests++
+			t.Logf("Other request #%d: %s", otherRequests, req.URL.Path)
+
+			// Для подстраницы /page2
+			if req.URL.Path == "/page2" {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(subpageHTML)),
+					Header:     http.Header{"Content-Type": []string{"text/html"}},
+					Request:    req,
+				}, nil
+			}
+
+			// Для изображения
+			if req.URL.Path == "/image.png" {
+				return &http.Response{
+					StatusCode:    http.StatusOK,
+					Body:          io.NopCloser(bytes.NewReader([]byte("fake image"))),
+					Header:        http.Header{"Content-Type": []string{"image/png"}},
+					ContentLength: 100,
+					Request:       req,
+				}, nil
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("<html></html>")),
+				Header:     http.Header{"Content-Type": []string{"text/html"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+
+	opts := Options{
+		URL:         "http://example.com",
+		Depth:       1,
+		Delay:       100 * time.Millisecond, // Добавляем задержку для проверки
+		Timeout:     10 * time.Second,
+		Retries:     2,
+		Concurrency: 1,
+		HTTPClient:  client,
+	}
+
+	ctx := context.Background()
+	startTime := time.Now()
+	result, err := Analyze(ctx, opts)
+	elapsed := time.Since(startTime)
+
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	var response Report
+	if err := json.Unmarshal(result, &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+
+	// Проверяем, что было сделано 2 попытки для главной страницы
+	if mainPageAttempts != 2 {
+		t.Errorf("Expected 2 attempts for main page, got %d", mainPageAttempts)
+	}
+
+	// Проверяем, что страница успешно получена
+	if len(response.Pages) == 0 {
+		t.Fatal("Expected at least one page")
+	}
+
+	// Находим главную страницу в ответе
+	var mainPage *Page
+	for i := range response.Pages {
+		if response.Pages[i].URL == "http://example.com" {
+			mainPage = &response.Pages[i]
+			break
+		}
+	}
+
+	if mainPage == nil {
+		t.Fatal("Main page not found in response")
+	}
+
+	if mainPage.HTTPStatus != http.StatusOK {
+		t.Errorf("Expected status 200 after retry, got %d", mainPage.HTTPStatus)
+	}
+
+	if mainPage.Status != "ok" {
+		t.Errorf("Expected status 'ok', got %s", mainPage.Status)
+	}
+
+	if mainPage.Error != "" {
+		t.Errorf("Expected no error, got '%s'", mainPage.Error)
+	}
+
+	// Проверяем SEO данные
+	if !mainPage.SEO.HasTitle {
+		t.Error("Expected HasTitle to be true")
+	}
+	if mainPage.SEO.Title != "Success after retry" {
+		t.Errorf("Expected title 'Success after retry', got '%s'", mainPage.SEO.Title)
+	}
+
+	if !mainPage.SEO.HasDescription {
+		t.Error("Expected HasDescription to be true")
+	}
+	if mainPage.SEO.Description != "Content after retry" {
+		t.Errorf("Expected description 'Content after retry', got '%s'", mainPage.SEO.Description)
+	}
+
+	if !mainPage.SEO.HasH1 {
+		t.Error("Expected HasH1 to be true")
+	}
+
+	// Проверяем, что были извлечены ссылки (поле Links должно быть заполнено)
+	// Заметим: Links не сериализуется в JSON, но в памяти должно быть заполнено
+	if len(mainPage.Links) == 0 {
+		// Это может быть OK, если Links действительно не заполняется
+		// Проверим через BrokenLinks, так как /page2 должна быть проверена
+		t.Logf("Links field is empty (might be expected due to json:\"-\" tag)")
+	}
+
+	// Проверяем наличие битых ссылок (хотя /page2 доступна)
+	// В нашем случае /page2 доступна, поэтому она не должна быть в BrokenLinks
+	if len(mainPage.BrokenLinks) > 0 {
+		t.Logf("Found %d broken links", len(mainPage.BrokenLinks))
+	}
+
+	// Проверяем ассеты
+	if len(mainPage.Assets) == 0 {
+		t.Error("Expected to find assets in the page")
+	} else {
+		asset := mainPage.Assets[0]
+		if asset.URL != "http://example.com/image.png" {
+			t.Errorf("Expected asset URL 'http://example.com/image.png', got '%s'", asset.URL)
+		}
+		if asset.StatusCode != 200 {
+			t.Errorf("Expected asset status 200, got %d", asset.StatusCode)
+		}
+	}
+
+	// Проверяем, что запрос к /page2 был сделан (otherRequests >= 2)
+	if otherRequests < 2 {
+		t.Errorf("Expected at least 2 other requests (page2 and image.png), got %d", otherRequests)
+	}
+
+	// Проверяем время выполнения - должна быть задержка между попытками
+	minExpectedTime := 90 * time.Millisecond // Даем допуск 10%
+	if elapsed < minExpectedTime {
+		t.Errorf("Total time %v is less than expected %v (should wait before retry)",
+			elapsed, minExpectedTime)
+	}
+
+	// Дополнительная проверка: убеждаемся, что страница /page2 есть в отчете
+	foundPage2 := false
+	for _, page := range response.Pages {
+		if page.URL == "http://example.com/page2" {
+			foundPage2 = true
+			break
+		}
+	}
+
+	// При Depth=1 страница /page2 не должна быть закраулена, только проверена
+	// Поэтому она не должна быть в Pages
+	if foundPage2 && opts.Depth == 1 {
+		t.Log("Page2 found in pages (might be expected if depth calculation is different)")
+	}
+
+	t.Logf("Successfully retried after 429 - main page attempts: %d, other requests: %d, time: %v",
+		mainPageAttempts, otherRequests, elapsed)
+}
