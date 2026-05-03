@@ -1,3 +1,4 @@
+// Package urlutil - пакет обработки путей url
 package urlutil
 
 import (

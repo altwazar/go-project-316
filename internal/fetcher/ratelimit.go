@@ -1,3 +1,4 @@
+// Package fetcher - логика http запросов
 package fetcher
 
 import (

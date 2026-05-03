@@ -1,3 +1,4 @@
+// Package parser - извлечение информации со страничек
 package parser
 
 import (

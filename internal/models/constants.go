@@ -1,3 +1,4 @@
+// Package models - общие структуры данных
 package models
 
 const (

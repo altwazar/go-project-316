@@ -1,3 +1,4 @@
+// Package crawler - основная логика краулера
 package crawler
 
 import "code/internal/models"

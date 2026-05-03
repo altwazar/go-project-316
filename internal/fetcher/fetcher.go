@@ -1,3 +1,4 @@
+// Package fetcher - логика http запросов
 package fetcher
 
 import (
@@ -134,7 +135,7 @@ func (p *pageProcessor) readXMLBody() error {
 
 func (p *pageProcessor) closeResponse() {
 	if p.resp != nil {
-		p.resp.Body.Close()
+		_ = p.resp.Body.Close()
 	}
 }
 
