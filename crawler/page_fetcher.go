@@ -30,6 +30,16 @@ func getPageWithRetries(ctx context.Context, url string, depth int, opts Options
 	return newPageResponse(0, normalizedURL, depth, nil, SEOData{}, nil, state.getLastErrorMsg())
 }
 
+// isRetriable - проверяет, должна ли быть повторная попытка
+func isRetriable(statusCode int, err error) bool {
+	if err != nil {
+		// Сетевые ошибки, таймауты - повторяем
+		return true
+	}
+	// 429 Too Many Requests и все 5xx ошибки - повторяем
+	return statusCode == 429 || statusCode >= 500
+}
+
 // retryState хранит состояние между попытками
 type retryState struct {
 	ctx     context.Context
@@ -45,17 +55,23 @@ func (s *retryState) tryAttempt(attempt int) *Page {
 		return s.createCancelledPage()
 	}
 	finalURL, statusCode, links, seoData, assets, err := getPageWithLinks(s.ctx, s.url, s.opts.HTTPClient, s.opts.UserAgent)
-	if s.isSuccessful(statusCode, err) {
+
+	if s.isSuccessAndNotRetriable(statusCode, err) {
 		return s.createSuccessPage(finalURL, statusCode, links, seoData, assets)
 	}
 
 	s.updateLastError(statusCode, err)
 
-	if s.shouldRetry(attempt) {
+	if s.shouldRetry(attempt, statusCode, err) {
 		s.waitBeforeRetry(attempt)
 	}
 
 	return nil
+}
+
+// isSuccessAndNotRetriable - проверка успешности и отсутствия необходимости ретрая
+func (s *retryState) isSuccessAndNotRetriable(statusCode int, err error) bool {
+	return err == nil && statusCode > 0 && !isRetriable(statusCode, err)
 }
 
 // isContextCancelled - проверка отмены контекста
@@ -66,11 +82,6 @@ func (s *retryState) isContextCancelled() bool {
 	default:
 		return false
 	}
-}
-
-// isSuccessful - проверка успешности запроса
-func (s *retryState) isSuccessful(statusCode int, err error) bool {
-	return err == nil && statusCode > 0 && statusCode < 500
 }
 
 // createCancelledPage - создание страницы с ошибкой отмены
@@ -89,14 +100,17 @@ func (s *retryState) createSuccessPage(finalURL string, statusCode int, links []
 func (s *retryState) updateLastError(statusCode int, err error) {
 	if err != nil {
 		s.lastErr = err
-	} else if statusCode >= 500 {
-		s.lastErr = fmt.Errorf("HTTP %d", statusCode)
+	} else if isRetriable(statusCode, nil) {
+		s.lastErr = fmt.Errorf("HTTP %d (retriable)", statusCode)
 	}
 }
 
 // shouldRetry - проверка необходимости повторной попытки
-func (s *retryState) shouldRetry(attempt int) bool {
-	return attempt < s.opts.Retries
+func (s *retryState) shouldRetry(attempt int, statusCode int, err error) bool {
+	if attempt >= s.opts.Retries {
+		return false
+	}
+	return isRetriable(statusCode, err)
 }
 
 // waitBeforeRetry - ожидание перед повтором с учетом RPS, Delay и backoff
