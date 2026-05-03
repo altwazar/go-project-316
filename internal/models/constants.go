@@ -1,4 +1,4 @@
-package crawler
+package models
 
 const (
 	// MaxHTMLBodySize - максимальный размер HTML-тела (10MB)

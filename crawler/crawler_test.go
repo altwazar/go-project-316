@@ -4,6 +4,7 @@ package crawler
 
 import (
 	"bytes"
+	"code/internal/models"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -41,7 +42,7 @@ func TestSuccessfulRequest(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -56,7 +57,7 @@ func TestSuccessfulRequest(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -85,7 +86,7 @@ func TestNetworkError(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -101,7 +102,7 @@ func TestNetworkError(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestNotFoundStatus(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -147,7 +148,7 @@ func TestNotFoundStatus(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestSEODataExists(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -202,7 +203,7 @@ func TestSEODataExists(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -252,7 +253,7 @@ func TestSEODataMissing(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -268,7 +269,7 @@ func TestSEODataMissing(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -356,7 +357,7 @@ func TestRateLimiting(t *testing.T) {
 
 	startTime := time.Now()
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       100 * time.Millisecond,
@@ -423,7 +424,7 @@ func TestRetriesSuccess(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       10 * time.Millisecond,
@@ -439,7 +440,7 @@ func TestRetriesSuccess(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -501,7 +502,7 @@ func TestAssetDeduplication(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -517,7 +518,7 @@ func TestAssetDeduplication(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -603,7 +604,7 @@ func TestJSONResponseComparison(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       0,
 		Delay:       0,
@@ -631,7 +632,7 @@ func TestJSONResponseComparison(t *testing.T) {
 		t.Error("Missing page was not requested")
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -693,7 +694,7 @@ func TestTimeout(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -709,7 +710,7 @@ func TestTimeout(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -771,7 +772,7 @@ func TestConcurrentRequests(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       2,
 		Delay:       0,
@@ -852,7 +853,7 @@ func TestRPSLimit(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -1040,7 +1041,7 @@ func TestDepthLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := Options{
+			opts := models.Options{
 				URL:         "http://example.com",
 				Depth:       tt.depth,
 				Delay:       0,
@@ -1056,7 +1057,7 @@ func TestDepthLimit(t *testing.T) {
 				t.Fatalf("Analyze failed: %v", err)
 			}
 
-			var response Report
+			var response models.Report
 			if err := json.Unmarshal(result, &response); err != nil {
 				t.Fatalf("Failed to unmarshal response: %v", err)
 			}
@@ -1145,7 +1146,7 @@ func TestExternalLinksNotCrawled(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       2,
 		Delay:       0,
@@ -1161,7 +1162,7 @@ func TestExternalLinksNotCrawled(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1233,7 +1234,7 @@ func TestDuplicateLinksDeduplication(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       2,
 		Delay:       0,
@@ -1249,7 +1250,7 @@ func TestDuplicateLinksDeduplication(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1380,7 +1381,7 @@ func TestContextCancellationGracefulShutdown(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       2,
 		Delay:       0,
@@ -1405,7 +1406,7 @@ func TestContextCancellationGracefulShutdown(t *testing.T) {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1509,7 +1510,7 @@ func TestContextCancellationPartialResults(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       2,
 		Delay:       0,
@@ -1534,7 +1535,7 @@ func TestContextCancellationPartialResults(t *testing.T) {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1634,7 +1635,7 @@ func TestCustomUserAgent(t *testing.T) {
 
 		customUA := "MyBot/1.0"
 
-		opts := Options{
+		opts := models.Options{
 			URL:         "http://example.com",
 			Depth:       2,
 			Delay:       0,
@@ -1671,7 +1672,7 @@ func TestCustomUserAgent(t *testing.T) {
 			}),
 		}
 
-		opts := Options{
+		opts := models.Options{
 			URL:         "http://example.com",
 			Depth:       1,
 			Concurrency: 1,
@@ -1724,7 +1725,7 @@ func TestCustomUserAgent(t *testing.T) {
 
 		customUA := "HeadChecker/1.0"
 
-		opts := Options{
+		opts := models.Options{
 			URL:         "http://example.com",
 			Depth:       1,
 			Delay:       0,
@@ -1843,7 +1844,7 @@ func TestRetryOn429(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       100 * time.Millisecond, // Добавляем задержку для проверки
@@ -1862,7 +1863,7 @@ func TestRetryOn429(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -1878,7 +1879,7 @@ func TestRetryOn429(t *testing.T) {
 	}
 
 	// Находим главную страницу в ответе
-	var mainPage *Page
+	var mainPage *models.Page
 	for i := range response.Pages {
 		if response.Pages[i].URL == "http://example.com" {
 			mainPage = &response.Pages[i]
@@ -2025,7 +2026,7 @@ func TestHeadMethodNotAllowed(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2041,7 +2042,7 @@ func TestHeadMethodNotAllowed(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -2121,7 +2122,7 @@ func TestHeadNotImplemented(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2194,7 +2195,7 @@ func TestHead405ThenGet404(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2210,7 +2211,7 @@ func TestHead405ThenGet404(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -2286,7 +2287,7 @@ func TestHeadSuccessWithoutFallback(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       0, // Depth 0 - не краулим ссылки, только проверяем
 		Delay:       0,
@@ -2356,7 +2357,7 @@ func TestHeadNetworkErrorThenGetSuccess(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2437,7 +2438,7 @@ func TestAssetHeadMethodNotAllowed(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2453,7 +2454,7 @@ func TestAssetHeadMethodNotAllowed(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -2540,7 +2541,7 @@ func TestAssetHeadNotImplemented(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2610,7 +2611,7 @@ func TestAssetHeadSuccessWithoutFallback(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2626,7 +2627,7 @@ func TestAssetHeadSuccessWithoutFallback(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -2699,7 +2700,7 @@ func TestAssetHeadNetworkErrorThenGetSuccess(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2715,7 +2716,7 @@ func TestAssetHeadNetworkErrorThenGetSuccess(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -2791,7 +2792,7 @@ func TestAssetHead405ThenGet404(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2807,7 +2808,7 @@ func TestAssetHead405ThenGet404(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
@@ -2885,7 +2886,7 @@ func TestAssetDeduplicationWithHead(t *testing.T) {
 		}),
 	}
 
-	opts := Options{
+	opts := models.Options{
 		URL:         "http://example.com",
 		Depth:       1,
 		Delay:       0,
@@ -2901,7 +2902,7 @@ func TestAssetDeduplicationWithHead(t *testing.T) {
 		t.Fatalf("Analyze failed: %v", err)
 	}
 
-	var response Report
+	var response models.Report
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}

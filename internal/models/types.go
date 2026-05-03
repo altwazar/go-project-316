@@ -1,4 +1,4 @@
-package crawler
+package models
 
 import (
 	"net/http"
@@ -9,15 +9,12 @@ import (
 type AssetType string
 
 const (
-	// AssetTypeImage - картинка
-	AssetTypeImage AssetType = "image"
-	// AssetTypeScript - скрипт
+	AssetTypeImage  AssetType = "image"
 	AssetTypeScript AssetType = "script"
-	// AssetTypeStyle - стиль
-	AssetTypeStyle AssetType = "style"
+	AssetTypeStyle  AssetType = "style"
 )
 
-// Asset - информация о  ассете
+// Asset - информация об ассете
 type Asset struct {
 	URL        string    `json:"url"`
 	Type       AssetType `json:"type"`
@@ -76,5 +73,5 @@ type SEOData struct {
 	HasDescription bool   `json:"has_description"`
 	Description    string `json:"description"`
 	HasH1          bool   `json:"has_h1"`
-	// H1             string `json:"h1"`
+	// H1             string `json:"h1"` // закомментировано, как в оригинале
 }

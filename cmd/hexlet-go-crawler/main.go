@@ -1,8 +1,9 @@
-// Package main - точка входа в программу
+// cmd/hexlet-go-crawler/main.go
 package main
 
 import (
 	"code/crawler"
+	"code/internal/models"
 	"context"
 	"fmt"
 	"github.com/urfave/cli/v3"
@@ -63,7 +64,7 @@ func main() {
 	}
 }
 
-func createOptions(cmd *cli.Command) crawler.Options {
+func createOptions(cmd *cli.Command) models.Options {
 	delay := cmd.Duration("delay")
 	rps := cmd.Int("rps")
 
@@ -71,7 +72,7 @@ func createOptions(cmd *cli.Command) crawler.Options {
 		delay = 0
 	}
 
-	return crawler.Options{
+	return models.Options{
 		URL:         cmd.Args().Get(0),
 		Depth:       cmd.Int("depth"),
 		Delay:       delay,

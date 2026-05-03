@@ -1,14 +1,15 @@
-// Package crawler - пакет с основной функцией, нужно по заданию
 package crawler
 
 import (
 	"context"
 	"encoding/json"
 	"net/http"
+
+	"code/internal/models"
 )
 
 // Analyze - точка входа в краулер
-func Analyze(ctx context.Context, opts Options) ([]byte, error) {
+func Analyze(ctx context.Context, opts models.Options) ([]byte, error) {
 	if opts.HTTPClient == nil {
 		opts.HTTPClient = &http.Client{
 			Timeout: opts.Timeout,

@@ -5,32 +5,34 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"code/internal/fetcher"
+	"code/internal/models"
+	"code/internal/urlutil"
 )
 
-// pool - структура с пулом воркеров и настройками
 type pool struct {
 	ctx                   context.Context
 	cancel                context.CancelFunc
-	opts                  Options
+	opts                  models.Options
 	taskChan              chan task
 	linkChecksInProgress  map[string]int
 	getPagesInProgress    map[string]int
 	assetChecksInProgress map[string]int
-	assetsStatuses        map[string]Asset
-	linkStatuses          map[string]LinkStatus
-	pages                 []Page
+	assetsStatuses        map[string]models.Asset
+	linkStatuses          map[string]models.LinkStatus
+	pages                 []models.Page
 	mu                    sync.RWMutex
 	tasksWg               sync.WaitGroup
 	workersWg             sync.WaitGroup
 	doneChan              chan struct{}
-	rateLimiter           *rateLimiter
+	rateLimiter           *fetcher.RateLimiter
 }
 
-func newPool(ctx context.Context, opts Options) (*pool, error) {
-	if _, err := normalizeURL(opts.URL); err != nil {
+func newPool(ctx context.Context, opts models.Options) (*pool, error) {
+	if _, err := urlutil.NormalizeURL(opts.URL); err != nil {
 		return &pool{}, err
 	}
-
 	ctxWithCancel, cancel := context.WithCancel(ctx)
 
 	taskChanSize := opts.Concurrency * 10
@@ -43,13 +45,13 @@ func newPool(ctx context.Context, opts Options) (*pool, error) {
 		linkChecksInProgress:  make(map[string]int),
 		getPagesInProgress:    make(map[string]int),
 		assetChecksInProgress: make(map[string]int),
-		assetsStatuses:        make(map[string]Asset),
-		linkStatuses:          make(map[string]LinkStatus),
-		pages:                 []Page{},
+		assetsStatuses:        make(map[string]models.Asset),
+		linkStatuses:          make(map[string]models.LinkStatus),
+		pages:                 []models.Page{},
 		tasksWg:               sync.WaitGroup{},
 		workersWg:             sync.WaitGroup{},
 		doneChan:              make(chan struct{}),
-		rateLimiter:           newRateLimiter(opts.RPS, opts.Delay),
+		rateLimiter:           fetcher.NewRateLimiter(opts.RPS, opts.Delay),
 	}, nil
 }
 
@@ -95,21 +97,19 @@ func (p *pool) monitorTasks() {
 func worker(p *pool) {
 	defer p.workersWg.Done()
 	for task := range p.taskChan {
-		if err := p.rateLimiter.wait(p.ctx); err != nil {
+		if err := p.rateLimiter.Wait(p.ctx); err != nil {
 			return
 		}
 		task.execute(p)
 	}
 }
 
-// parseResult - формирование отчёта
-func parseResult(p *pool) *Report {
+func parseResult(p *pool) *models.Report {
 	for i := range p.pages {
 		p.processPageBrokenLinks(i)
 		p.processPageAssets(i)
 	}
 
-	// Сортируем страницы по URL для детерминированного порядка
 	sort.Slice(p.pages, func(i, j int) bool {
 		return p.pages[i].URL < p.pages[j].URL
 	})
@@ -117,7 +117,6 @@ func parseResult(p *pool) *Report {
 	return newAnalyzeResponse(p.opts.URL, p.opts.Depth, p.pages)
 }
 
-// processPageBrokenLinks - обработка битых ссылок на странице
 func (p *pool) processPageBrokenLinks(pageIndex int) {
 	for _, link := range p.pages[pageIndex].Links {
 		if p.isBrokenLink(link) {
@@ -126,7 +125,6 @@ func (p *pool) processPageBrokenLinks(pageIndex int) {
 	}
 }
 
-// isBrokenLink - проверка является ли ссылка битой
 func (p *pool) isBrokenLink(link string) bool {
 	status, exists := p.linkStatuses[link]
 	if !exists {
@@ -135,34 +133,30 @@ func (p *pool) isBrokenLink(link string) bool {
 	return status.StatusCode >= 400 || status.Error != ""
 }
 
-// processPageAssets - обработка ассетов на странице
 func (p *pool) processPageAssets(pageIndex int) {
 	for assetIdx := range p.pages[pageIndex].Assets {
 		p.updateAssetWithStatus(pageIndex, assetIdx)
 	}
 
-	// Сортируем assets по типу и URL для детерминированного порядка
 	sort.Slice(p.pages[pageIndex].Assets, func(i, j int) bool {
 		if p.pages[pageIndex].Assets[i].Type != p.pages[pageIndex].Assets[j].Type {
-			// Сортируем по типу: image, script, style (алфавитно)
 			return p.pages[pageIndex].Assets[i].Type < p.pages[pageIndex].Assets[j].Type
 		}
 		return p.pages[pageIndex].Assets[i].URL < p.pages[pageIndex].Assets[j].URL
 	})
 }
 
-// updateAssetWithStatus - обновление ассета статусом
 func (p *pool) updateAssetWithStatus(pageIndex, assetIndex int) {
 	assetURL := p.pages[pageIndex].Assets[assetIndex].URL
-	normalizedURL, _ := normalizeURL(assetURL)
+	normalizedURL, _ := urlutil.NormalizeURL(assetURL)
 
 	if statusAsset, exists := p.assetsStatuses[normalizedURL]; exists {
 		p.pages[pageIndex].Assets[assetIndex] = statusAsset
 	}
 }
 
-func newAnalyzeResponse(rootURL string, depth int, pages []Page) *Report {
-	return &Report{
+func newAnalyzeResponse(rootURL string, depth int, pages []models.Page) *models.Report {
+	return &models.Report{
 		RootURL:     rootURL,
 		Depth:       depth,
 		GeneratedAt: time.Now().UTC().Truncate(time.Second),

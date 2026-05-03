@@ -1,37 +1,17 @@
-package crawler
+package parser
 
 import (
 	"fmt"
-	"golang.org/x/net/html"
 	"net/url"
 	"strings"
+
+	"golang.org/x/net/html"
+
+	"code/internal/models"
 )
 
-// extractSEOFromXML - получение SEO из XML
-func extractSEOFromXML(xmlContent string) SEOData {
-	seo := SEOData{}
-
-	// Ищем channel -> title
-	channelIdx := strings.Index(xmlContent, "<channel>")
-	if channelIdx != -1 {
-		// Ищем title внутри channel
-		titleStart := strings.Index(xmlContent[channelIdx:], "<title>")
-		if titleStart != -1 {
-			titleStart += channelIdx + 7
-			titleEnd := strings.Index(xmlContent[titleStart:], "</title>")
-			if titleEnd != -1 {
-				title := xmlContent[titleStart : titleStart+titleEnd]
-				seo.HasTitle = true
-				seo.Title = decodeHTMLEntities(strings.TrimSpace(title))
-			}
-		}
-	}
-
-	return seo
-}
-
-// extractLinksAndAssets - получение ссылок из ассетов
-func extractLinksAndAssets(htmlContent string, baseURL *url.URL) ([]string, []Asset, error) {
+// ExtractLinksAndAssets - извлечение ссылок и ассетов из HTML
+func ExtractLinksAndAssets(htmlContent string, baseURL *url.URL) ([]string, []models.Asset, error) {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse HTML: %w", err)
@@ -40,7 +20,7 @@ func extractLinksAndAssets(htmlContent string, baseURL *url.URL) ([]string, []As
 	result := &extractResult{
 		baseURL:  baseURL,
 		links:    []string{},
-		assets:   []Asset{},
+		assets:   []models.Asset{},
 		linkMap:  make(map[string]bool),
 		assetMap: make(map[string]bool),
 	}
@@ -52,7 +32,7 @@ func extractLinksAndAssets(htmlContent string, baseURL *url.URL) ([]string, []As
 type extractResult struct {
 	baseURL  *url.URL
 	links    []string
-	assets   []Asset
+	assets   []models.Asset
 	linkMap  map[string]bool
 	assetMap map[string]bool
 }
@@ -66,7 +46,6 @@ func (r *extractResult) traverse(n *html.Node) {
 	}
 }
 
-// processNode - обработка узла
 func (r *extractResult) processNode(n *html.Node) {
 	handler := r.getNodeHandler(n.Data)
 	if handler != nil {
@@ -74,17 +53,14 @@ func (r *extractResult) processNode(n *html.Node) {
 	}
 }
 
-// getNodeHandler - получение обработчика для тега
 func (r *extractResult) getNodeHandler(tagName string) func(*html.Node) {
 	handlers := r.getHandlersMap()
-
 	if handler, exists := handlers[tagName]; exists {
 		return handler
 	}
 	return nil
 }
 
-// getHandlersMap - карта обработчиков (конфигурация)
 func (r *extractResult) getHandlersMap() map[string]func(*html.Node) {
 	return map[string]func(*html.Node){
 		"a":      r.handleAnchor,
@@ -94,24 +70,20 @@ func (r *extractResult) getHandlersMap() map[string]func(*html.Node) {
 	}
 }
 
-// handleAnchor - обработка тега a
 func (r *extractResult) handleAnchor(n *html.Node) {
 	r.processAttr(n, "href", r.addLink)
 }
 
-// handleImage - обработка тега img
 func (r *extractResult) handleImage(n *html.Node) {
 	r.processAttr(n, "src", r.addAsset)
 	r.processSrcset(n)
 	r.processStyleAttr(n)
 }
 
-// handleScript - обработка тега script
 func (r *extractResult) handleScript(n *html.Node) {
 	r.processAttr(n, "src", r.addAsset)
 }
 
-// handleLink - обработка тега link
 func (r *extractResult) handleLink(n *html.Node) {
 	if !r.isStylesheet(n) {
 		return
@@ -167,16 +139,19 @@ func (r *extractResult) addLink(rawURL string) {
 }
 
 func (r *extractResult) addAsset(rawURL string) {
-	if r.isSpecialURL(rawURL) {
+	if isSpecialURL(rawURL) {
 		return
 	}
 	if url := r.normalizeURL(rawURL); url != "" && !r.assetMap[url] {
 		r.assetMap[url] = true
-		r.assets = append(r.assets, Asset{URL: url, Type: detectAssetType(url)})
+		r.assets = append(r.assets, models.Asset{
+			URL:  url,
+			Type: detectAssetType(url),
+		})
 	}
 }
 
-func (r *extractResult) isSpecialURL(rawURL string) bool {
+func isSpecialURL(rawURL string) bool {
 	special := []string{"#", "javascript:", "mailto:", "tel:"}
 	for _, s := range special {
 		if strings.HasPrefix(rawURL, s) {
@@ -201,30 +176,141 @@ func (r *extractResult) normalizeURL(rawURL string) string {
 // extractURLsFromStyle - извлечение URL из CSS
 func extractURLsFromStyle(style string) []string {
 	var urls []string
-
 	for i := 0; i < len(style); {
 		urlStart := strings.Index(style[i:], "url(")
 		if urlStart == -1 {
 			break
 		}
-
 		urlStart += i
 		contentStart := urlStart + 4
-
 		urlEnd := strings.Index(style[contentStart:], ")")
 		if urlEnd == -1 {
 			break
 		}
-
 		urlEnd += contentStart
 		urlStr := strings.Trim(style[contentStart:urlEnd], "'\" \t\n\r")
-
 		if urlStr != "" {
 			urls = append(urls, urlStr)
 		}
-
 		i = urlEnd + 1
 	}
-
 	return urls
+}
+
+// ExtractSEOData - извлечение SEO данных из HTML
+func ExtractSEOData(htmlContent string) models.SEOData {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return models.SEOData{}
+	}
+	seo := models.SEOData{}
+	traverseForSEO(doc, &seo)
+	return seo
+}
+
+func traverseForSEO(n *html.Node, seo *models.SEOData) {
+	if n.Type == html.ElementNode {
+		processSEOElement(n, seo)
+	}
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		traverseForSEO(child, seo)
+	}
+}
+
+func processSEOElement(n *html.Node, seo *models.SEOData) {
+	switch n.Data {
+	case "title":
+		extractTitle(n, seo)
+	case "meta":
+		extractMetaDescription(n, seo)
+	case "h1":
+		extractH1(n, seo)
+	}
+}
+
+func extractTitle(n *html.Node, seo *models.SEOData) {
+	if n.FirstChild != nil {
+		seo.HasTitle = true
+		seo.Title = html.UnescapeString(strings.TrimSpace(n.FirstChild.Data))
+	}
+}
+
+func extractMetaDescription(n *html.Node, seo *models.SEOData) {
+	name, content := getMetaAttributes(n)
+	if name == "description" && content != "" {
+		seo.HasDescription = true
+		seo.Description = html.UnescapeString(strings.TrimSpace(content))
+	}
+}
+
+func extractH1(n *html.Node, seo *models.SEOData) {
+	if n.FirstChild != nil {
+		seo.HasH1 = true
+		// seo.H1 = html.UnescapeString(strings.TrimSpace(n.FirstChild.Data)) // закомментировано, как в оригинале
+	}
+}
+
+func getMetaAttributes(n *html.Node) (string, string) {
+	var name, content string
+	for _, attr := range n.Attr {
+		if attr.Key == "name" {
+			name = strings.ToLower(attr.Val)
+		}
+		if attr.Key == "content" {
+			content = attr.Val
+		}
+	}
+	return name, content
+}
+
+// ExtractSEOFromXML - получение SEO из XML (RSS)
+func ExtractSEOFromXML(xmlContent string) models.SEOData {
+	seo := models.SEOData{}
+	channelIdx := strings.Index(xmlContent, "<channel>")
+	if channelIdx != -1 {
+		titleStart := strings.Index(xmlContent[channelIdx:], "<title>")
+		if titleStart != -1 {
+			titleStart += channelIdx + 7
+			titleEnd := strings.Index(xmlContent[titleStart:], "</title>")
+			if titleEnd != -1 {
+				title := xmlContent[titleStart : titleStart+titleEnd]
+				seo.HasTitle = true
+				seo.Title = html.UnescapeString(strings.TrimSpace(title))
+			}
+		}
+	}
+	return seo
+}
+
+// detectAssetType - определение типа ассета по расширению и тегу
+func detectAssetType(urlStr string) models.AssetType {
+	urlStr = strings.ToLower(urlStr)
+	if strings.HasPrefix(urlStr, "data:image/") {
+		return models.AssetTypeImage
+	}
+	extensions := []extensionType{
+		{patterns: []string{".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".ico", ".bmp", ".tiff", ".tif"}, assetType: models.AssetTypeImage},
+		{patterns: []string{".js", ".mjs"}, assetType: models.AssetTypeScript},
+		{patterns: []string{".css"}, assetType: models.AssetTypeStyle},
+	}
+	for _, ext := range extensions {
+		if containsAnyExtension(urlStr, ext.patterns) {
+			return ext.assetType
+		}
+	}
+	return models.AssetTypeImage
+}
+
+type extensionType struct {
+	patterns  []string
+	assetType models.AssetType
+}
+
+func containsAnyExtension(urlStr string, extensions []string) bool {
+	for _, ext := range extensions {
+		if strings.Contains(urlStr, ext) {
+			return true
+		}
+	}
+	return false
 }
