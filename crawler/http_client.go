@@ -9,11 +9,11 @@ import (
 // checkLinkStatus - проверка статуса ссылки (основная функция)
 func checkLinkStatus(ctx context.Context, urlStr string, client *http.Client, userAgent string) (int, error) {
 	normalizedURL := normalizeOrKeep(urlStr)
-	parsedURL, err := parseAndSetScheme(normalizedURL)
+	validatedURL, err := validateAndNormalizeURL(normalizedURL)
 	if err != nil {
 		return 0, err
 	}
-	return attemptRequest(ctx, parsedURL.String(), client, userAgent)
+	return attemptRequest(ctx, validatedURL, client, userAgent)
 }
 
 // attemptRequest - попытка выполнения запроса с fallback на GET

@@ -87,20 +87,6 @@ func normalizeOrKeep(urlStr string) string {
 	return normalizedURL
 }
 
-// parseAndSetScheme - парсинг и установка схемы по умолчанию
-func parseAndSetScheme(rawURL string) (*url.URL, error) {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-
-	if parsedURL.Scheme == "" {
-		parsedURL.Scheme = DefaultScheme
-	}
-
-	return parsedURL, nil
-}
-
 // validateAndNormalizeURL - валидация и нормализация URL для внешних запросов
 func validateAndNormalizeURL(rawURL string) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
